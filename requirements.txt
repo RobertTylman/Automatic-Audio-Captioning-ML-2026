@@ -1,0 +1,16 @@
+torch>=2.0.0
+torchaudio
+transformers
+numpy
+pandas
+scipy
+librosa
+tqdm
+matplotlib
+tensorboard
+scikit-learn
+pyyaml
+wandb
+sentencepiece
+# CoNeTTE specifically uses a few more (like CNext encoder)
+# Add other dependencies as needed
