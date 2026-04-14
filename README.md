@@ -59,9 +59,23 @@ CoNeTTE remains highly competitive with much larger models:
 Our work aims to extend and improve this model for the Spring 2026 Machine Listening final project.
 
 ### Planned Enhancements
-- [ ] Reproduce baseline CoNeTTE results.
-- [ ] Explore alternative encoder backbones (e.g., AST or EfficientNet).
-- [ ] Investigate fine-tuning strategies for cross-domain adaptation.
+- [ ] Reproduce baseline CoNeTTE results (ConvNeXt encoder + Transformer decoder + beam search) as our control setup.
+- [ ] Evaluate upgraded/switchable encoders, starting with **AST (Audio Spectrogram Transformer)** and additional candidates such as EfficientNet-style audio backbones.
+- [ ] Replace or complement beam search with **nucleus sampling (top-p)** to generate diverse caption candidates.
+- [ ] Build a multi-candidate decoding pipeline:
+  - generate multiple captions with nucleus sampling,
+  - rank candidates with automatic metrics and semantic similarity,
+  - summarize/select final output with an LLM.
+- [ ] Integrate a state-of-the-art LLM as a caption refinement/reranking module (e.g., **GPT-5.4**, **Gemini-family models**), then compare against non-LLM baselines.
+- [ ] Benchmark open-source LLM alternatives for the same refinement stage (e.g., **Qwen** and **Gemma** families) to study quality/cost trade-offs.
+- [ ] Prototype **multi-encoder fusion** (e.g., ConvNeXt + AST) to combine complementary acoustic representations into a richer decoder input.
+- [ ] Investigate fine-tuning strategies for cross-domain adaptation under single-dataset and multi-dataset training.
+
+### Baseline-to-Advanced Experiment Tracks
+1. **Encoder Track:** ConvNeXt vs AST vs fused encoders.
+2. **Decoder Track:** Beam search vs nucleus sampling vs hybrid decoding.
+3. **LLM Track:** No-LLM postprocessing vs proprietary LLM vs open-source LLM.
+4. **Generalization Track:** In-domain and cross-dataset evaluation across AudioCaps/Clotho(+).
 
 ### Setup & Requirements
 ```bash
