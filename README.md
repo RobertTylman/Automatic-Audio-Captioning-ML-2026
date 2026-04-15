@@ -97,20 +97,20 @@ Our final system integrates multiple state-of-the-art components to achieve supe
 
 ```mermaid
 graph TD
-    subgraph Model ["Architecture: Multi-Encoder Fusion + BART Decoding"]
+    subgraph Model ["Architecture: Multi-Encoder Fusion + Conformer Refinement"]
         Audio[Audio Input] --> Mel(Log Mel Spectrogram)
         
-        subgraph Encoders ["Feature Extraction (Ensemble)"]
+        subgraph Encoders ["Extraction (Ensemble)"]
             Mel --> BEATs[BEATs Encoder]
             Mel --> ConvNeXt[ConvNeXt Encoder]
-            Mel --> Conformer[Conformer Encoder]
-            
-            BEATs -- "Temporal Dependencies" --> Concat
-            Conformer -- "Temporal Dependencies" --> Concat
-            ConvNeXt -- "Texture + Timbre" --> Concat
         end
         
-        Concat[Concatenation] --> Project[Projection Layer]
+        BEATs -- "Temporal Dependencies" --> Concat
+        ConvNeXt -- "Local Texture + Timbre" --> Concat
+        
+        Concat[Concatenation] --> Conformer[Conformer Post-Encoder]
+        
+        Conformer -- "Refine & Align Fused Features" --> Project[Projection Layer]
         Project -- "Align Language Space" --> B_Enc[BART Encoder]
         B_Enc -- "Self-Attention" --> B_Dec[BART Decoder]
         
@@ -138,24 +138,26 @@ graph TD
 
 ### Model Details
 - **Audio Processing:** Raw audio is converted into **log mel spectrograms**.
-- **Encoder Fusion:** 
-    - **Transformer-based (BEATs / Conformer):** Capture long-range temporal dependencies.
-    - **CNN-based (ConvNeXt):** Extract local texture and timbre patterns.
-    - **Combination:** Encoder outputs are concatenated into a rich representation, far exceeding the capability of any single model.
-- **Language Alignment:** Features are projected into **BART's language space** to match expected input dimensions and align audio with language embeddings.
+- **Encoder Fusion & Refinement:** 
+    - **Primary Encoders (BEATs, ConvNeXt):** Multiple pretrained encoders extract different aspects of sound.
+    - **BEATs (Transformer):** Captures long-range temporal dependencies.
+    - **ConvNeXt (CNN):** Focuses on local texture and timbre patterns.
+    - **Structure:** Each encoder turns the spectrogram into a sequence of feature vectors, which are then combined using **concatenation** for a richer representation than any single encoder.
+    - **Conformer Post-Encoder:** Acts as a refinement stage that combines local (convolution) and global (attention) context to refine and align the fused audio features, making them more structured and informative for the decoder.
+- **Language Alignment:** Outputs are projected into **BART's language space** to match expected input dimensions and align audio features with language embeddings.
 - **Decoding & Generation:**
-    - **BART Encoder:** Applies self-attention for global audio understanding.
+    - **BART Encoder:** Applies self-attention to build a global understanding of the audio.
     - **BART Decoder:** Uses cross-attention to previously generated tokens for next-token prediction.
     - **Nucleus Sampling:** Generates **64 diverse candidate captions**.
 - **Refinement Pipeline:**
-    - **CLAP Filtering:** Scores similarity between audio and captions, discarding weak matches.
-    - **Hybrid Reranking:** Consolidates the best candidates.
+    - **CLAP Filtering:** Uses CLAP to compare each caption to the original audio, scoring similarity and discarding weak candidates.
+    - **Hybrid Reranking:** Applied to consolidate the best candidates.
     - **LLM Summary:** A final LLM pass summarizes the top results into a single, high-quality caption.
 
 ### Evaluation: FENSE
 To ensure accuracy and readability, we utilize the **FENSE** metric:
-- **Semantic Accuracy:** Converts text into vectors and determines **cosine similarity** against ground truth references.
-- **Fluency Metric:** Uses a trained **LM classifier** to assign higher scores to natural human language, penalizing grammatically incorrect or awkward sentences.
+- **Semantic Accuracy:** Converts text into vectors and determines **cosine similarity** for each vector against ground truth references.
+- **Fluency Metric:** Measures fluency using a trained **LM or classifier** that assigns higher scores to sentences resembling natural human language and lower scores to grammatically incorrect or awkward ones.
 
 ---
 
