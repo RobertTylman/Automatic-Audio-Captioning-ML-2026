@@ -89,6 +89,76 @@ pip install -r requirements.txt
 
 ---
 
+---
+
+## 🏆 Winning Model
+
+Our final system integrates multiple state-of-the-art components to achieve superior audio-to-text alignment and caption fluency.
+
+```mermaid
+graph TD
+    subgraph Model ["Architecture: Multi-Encoder Fusion + BART Decoding"]
+        Audio[Audio Input] --> Mel(Log Mel Spectrogram)
+        
+        subgraph Encoders ["Feature Extraction (Ensemble)"]
+            Mel --> BEATs[BEATs Encoder]
+            Mel --> ConvNeXt[ConvNeXt Encoder]
+            Mel --> Conformer[Conformer Encoder]
+            
+            BEATs -- "Temporal Dependencies" --> Concat
+            Conformer -- "Temporal Dependencies" --> Concat
+            ConvNeXt -- "Texture + Timbre" --> Concat
+        end
+        
+        Concat[Concatenation] --> Project[Projection Layer]
+        Project -- "Align Language Space" --> B_Enc[BART Encoder]
+        B_Enc -- "Self-Attention" --> B_Dec[BART Decoder]
+        
+        subgraph Generation ["Nucleus Sampling & Refinement"]
+            B_Dec -- "Nucleus Sampling" --> Cands[64 Candidate Captions]
+            Cands --> CLAP{CLAP Scoring}
+            CLAP -- "Similarity Ranking" --> Rerank[Hybrid Reranking]
+            Rerank --> LLM[LLM Summarization]
+            LLM --> Final((Final Caption))
+        end
+    end
+
+    subgraph Eval ["Evaluation: FENSE Metric"]
+        Final --> Vec[Text Vectors]
+        GT[Ground Truth] --> Vec
+        Vec --> Cos[Cosine Similarity]
+        Final --> Fluency[Fluency LM Classifier]
+        Cos & Fluency --> FENSE[FENSE Score]
+    end
+
+    style Model fill:#f0f4ff,stroke:#333,stroke-width:2px
+    style Eval fill:#fff0f0,stroke:#333,stroke-width:2px
+    style Final fill:#e1f7d5,stroke:#2e7d32,stroke-width:3px
+```
+
+### Model Details
+- **Audio Processing:** Raw audio is converted into **log mel spectrograms**.
+- **Encoder Fusion:** 
+    - **Transformer-based (BEATs / Conformer):** Capture long-range temporal dependencies.
+    - **CNN-based (ConvNeXt):** Extract local texture and timbre patterns.
+    - **Combination:** Encoder outputs are concatenated into a rich representation, far exceeding the capability of any single model.
+- **Language Alignment:** Features are projected into **BART's language space** to match expected input dimensions and align audio with language embeddings.
+- **Decoding & Generation:**
+    - **BART Encoder:** Applies self-attention for global audio understanding.
+    - **BART Decoder:** Uses cross-attention to previously generated tokens for next-token prediction.
+    - **Nucleus Sampling:** Generates **64 diverse candidate captions**.
+- **Refinement Pipeline:**
+    - **CLAP Filtering:** Scores similarity between audio and captions, discarding weak matches.
+    - **Hybrid Reranking:** Consolidates the best candidates.
+    - **LLM Summary:** A final LLM pass summarizes the top results into a single, high-quality caption.
+
+### Evaluation: FENSE
+To ensure accuracy and readability, we utilize the **FENSE** metric:
+- **Semantic Accuracy:** Converts text into vectors and determines **cosine similarity** against ground truth references.
+- **Fluency Metric:** Uses a trained **LM classifier** to assign higher scores to natural human language, penalizing grammatically incorrect or awkward sentences.
+
+---
+
 ## 📚 References
 > **Paper:** [CoNeTTE: Audio Captioning with Task Embeddings](https://arxiv.org/abs/2309.00454)  
 > **Original Implementation:** [Labbé et al. (2023)](https://github.com/paullabbe/CoNeTTE)
