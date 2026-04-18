@@ -20,6 +20,8 @@ CoNeTTE (CNext-trans) is designed for high efficiency and performance, achieving
 The model follows an encoder-decoder framework optimized for audio signals:
 
 - **Encoder (ConvNeXt):** Adapted from computer vision, this robust convolutional backbone extracts deep hierarchical features from audio spectrograms.
+- **Encoder (BEATS):** Adding a second encoder with a conformer.
+
 - **Decoder (Transformer):** A vanilla Transformer decoder, trained from scratch, translates audio features into coherent natural language.
 - **Efficiency:** CoNeTTE utilizes **4–40× fewer parameters** than competing systems without sacrificing caption quality.
 
