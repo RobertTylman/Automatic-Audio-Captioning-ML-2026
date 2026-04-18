@@ -16,6 +16,14 @@ CoNeTTE (CNext-trans) is designed for high efficiency and performance, achieving
 
 ---
 
+**Submission Feedback**
+
+Overall Feedback From Bello:
+
+Good project and presentation. As we discussed during Q&A, I suggest extending your modifications to be a network-based fusion of encoders, and recreating the decoding/summarization pipeline of the second SOTA model you discussed. Whether you change CLAP for another pre-trained model would IMO afford less opportunities to learn new techniques. Although, if you do decide to test a change of CLAP for SLAP, perhaps you can just run some small test of music captioning. Good luck
+
+Score: 10 / 10 - A
+
 ## 🏗️ Core Architecture: CNext-Trans
 The model follows an encoder-decoder framework optimized for audio signals:
 
