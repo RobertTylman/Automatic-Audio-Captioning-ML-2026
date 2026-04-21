@@ -1,6 +1,7 @@
 torch>=2.0.0
 torchaudio
 transformers
+lightning
 numpy
 pandas
 scipy
@@ -12,5 +13,4 @@ scikit-learn
 pyyaml
 wandb
 sentencepiece
-# CoNeTTE specifically uses a few more (like CNext encoder)
-# Add other dependencies as needed
+einops
