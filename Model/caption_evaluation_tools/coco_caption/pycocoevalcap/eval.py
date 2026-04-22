@@ -26,7 +26,7 @@ class COCOEvalCap:
         self.coco = coco
         self.cocoRes = cocoRes
         self.params = {'audio_id': coco.getAudioIds()}
-        self.fense = Evaluator(device='cuda' if torch.cuda.is_available() else 'cpu', sbert_model=None)
+        self.fense = Evaluator(device='cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu'), sbert_model=None)
         
         # plain text for fluency eval
         self.predictions = predictions

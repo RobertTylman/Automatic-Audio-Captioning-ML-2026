@@ -26,7 +26,7 @@ conformer_config_json = sys.argv[3]
 test_split = sys.argv[4]
 
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
 strip_punct_table = str.maketrans("", "", punctuation)
 data_collator = ClothoCaptioningDataCollator(decoder_only=True)
 
@@ -38,6 +38,7 @@ def collect_audio_text_cosine_sims(
     samp_data,
     gen_caption,
 ):
+    # Encode each candidate caption into INSTRUCTOR text embedding space.
     instructor_inputs = [["Represent the audio caption: ", cap] for cap in gen_caption]
     instructor_embeds = instructor_model.encode(
         instructor_inputs,
@@ -45,7 +46,7 @@ def collect_audio_text_cosine_sims(
         batch_size=128,
     )
 
-    # clone encoder inputs for all captions
+    # Encode audio once for this sample.
     samp_enc_input = torch.tensor(samp_data["encoder_input"]).to(device).unsqueeze(0)
     samp_enc_mask = torch.tensor(samp_data["attention_mask"]).to(device).unsqueeze(0)
 
@@ -70,6 +71,7 @@ def rerank_captions_with_cosine_sim(
     samp_generated_captions,
     samp_sources=None,
 ):
+    # Higher cosine similarity is better.
     samp_cap_ranked_idx = np.argsort(-cosine_sims)
     samp_json_obj = {
         "idx": samp_idx,
@@ -113,6 +115,7 @@ if __name__ == "__main__":
         do_audio_preload=True,
     )
 
+    # Input comes from inference_sampling.py.
     gen_captions = json.load(open(os.path.join(inference_dir, "gen_captions.json")))
     print(json.dumps(gen_captions[0], indent=4))
 
@@ -128,6 +131,7 @@ if __name__ == "__main__":
 
         samp_gen_caps = gen_captions[i]["generated_captions"]
 
+        # Compute one audio-text similarity score per candidate caption.
         _, gen_cosine_sim = collect_audio_text_cosine_sims(
             model, instructor_model, samp, samp_gen_caps
         )
@@ -166,5 +170,6 @@ if __name__ == "__main__":
     with open(
         os.path.join(inference_dir, "gen_captions_encoder_reranked.json"), "w"
     ) as f:
+        # Output is consumed by hybrid_scoring.py.
         f.write(json.dumps(reranked_json, indent=4))
         f.write("\n")

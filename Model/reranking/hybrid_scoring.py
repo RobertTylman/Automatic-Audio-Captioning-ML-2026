@@ -19,7 +19,7 @@ import pandas as pd
 from fense.evaluator import Evaluator
 
 fense = Evaluator(
-    device="cuda" if torch.cuda.is_available() else "cpu", sbert_model=None
+    device="cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"), sbert_model=None
 )
 
 INFERENCE_DIR = sys.argv[1]
@@ -86,6 +86,8 @@ if __name__ == "__main__":
 
     beam_diff_indices = set()
 
+    # Merge decoder-reranked and encoder-reranked candidate pools.
+    # For each unique text candidate, keep a vector of score components.
     for s, ing in enumerate(ingredients):
         reranked_gens = json.load(
             open(os.path.join(INFERENCE_DIR, f"gen_captions_{ing}_reranked.json"))
@@ -98,12 +100,15 @@ if __name__ == "__main__":
             samples = reranked_gens[i]["generated_captions"]
             seen_samples = set()
             for j in range(len(samples)):
+                # Deduplicate exact text matches within each reranker output.
                 if samples[j]["text"] not in seen_samples:
                     seen_samples.add(samples[j]["text"])
 
                     if samples[j]["text"] not in all_samples[i]:
                         all_samples[i][samples[j]["text"]] = {
                             "text": samples[j]["text"],
+                            # Multiply by sign so all components can be combined
+                            # as "higher is better" downstream.
                             "scores": [ing_multiplier[s] * samples[j][score_names[s]]],
                         }
                     else:
@@ -112,6 +117,7 @@ if __name__ == "__main__":
                         )
 
     if DO_NORMALIZE:
+        # Optional per-audio z-score normalization for each score component.
         for i in range(len(reranked_gens)):
             for s in range(len(score_names)):
                 unnormed_scores = np.array(
@@ -136,6 +142,7 @@ if __name__ == "__main__":
     all_gens = [list(v.values()) for v in all_samples]
     print(len(all_gens), len(all_gens[0]))
 
+    # Weighted linear fusion of decoder + encoder score components.
     for i in range(len(all_gens)):
         for j in range(len(all_gens[i])):
             all_gens[i][j]["weighted_score"] = float(
@@ -157,6 +164,7 @@ if __name__ == "__main__":
     for i in range(len(all_gens)):
         print(i)
 
+        # FENSE flags disfluent text; we choose the highest-ranked fluent candidate.
         spider_scores, is_disfluent = patch_spider_score(
             [x["text"] for x in all_gens[i]],
         )
@@ -170,6 +178,7 @@ if __name__ == "__main__":
                 select_idx = j
                 break
 
+        # One final caption per audio file.
         out_dict[reranked_gens[i]["audio_file"]] = all_gens[i][select_idx]["text"]
 
         assert len(out_dict)

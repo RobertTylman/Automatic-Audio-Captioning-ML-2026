@@ -25,7 +25,7 @@ test_split = sys.argv[3]
 is_conformer_encoder = sys.argv[4] == "True" if len(sys.argv) > 4 else False
 conformer_config_json = sys.argv[5] if len(sys.argv) > 5 else None
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
 strip_punct_table = str.maketrans("", "", punctuation)
 remove_duplicate = False
 
@@ -38,9 +38,11 @@ def generate_caption_for_audio(
     inference_config: Dict[str, Any],
     strip_punct: bool = True,
 ):
+    # Build a single-item audio batch for this sample.
     wav_input = torch.tensor(inputs["encoder_input"]).to(device).unsqueeze(0)
     wav_mask = torch.tensor(inputs["attention_mask"]).to(device).unsqueeze(0)
 
+    # Encode audio once, then let the text decoder sample captions from it.
     encoder_outputs = model.encode_audio(
         encoder_input=wav_input, attention_mask=wav_mask
     )
@@ -52,6 +54,9 @@ def generate_caption_for_audio(
         if inference_config["num_return_sequences"] > 1:
             wav_mask = wav_mask.expand(inference_config["num_return_sequences"], -1)
 
+    # Core sampling call.
+    # With nucleus config (top-p + do_sample), this returns
+    # `num_return_sequences` sampled token-id sequences per audio sample.
     caption_seqs = model.generate(
         encoder_outputs=encoder_outputs,
         attention_mask=encoder_outputs.attention_mask,
@@ -59,12 +64,14 @@ def generate_caption_for_audio(
     )
     caption_seqs = caption_seqs.cpu().numpy()
 
+    # Convert each sampled token sequence into a human-readable caption string.
     caption_texts = []
 
     if remove_duplicate:
         seen_text = set()
 
     for i in range(len(caption_seqs)):
+        # `caption_seqs[i]` is one sampled sequence of token ids.
         caption_text = tokenizer.decode(caption_seqs[i], skip_special_tokens=True)
         # to conform to DCASE evaluation standards
         if strip_punct:
@@ -85,6 +92,7 @@ def generate_caption_for_audio(
 
 
 if __name__ == "__main__":
+    # Output directory name encodes split + sampling config (e.g. nucleus_t0.5_p95).
     inference_dir = os.path.join(
         ckpt_dir,
         f"inference_{test_split}_"
@@ -124,6 +132,8 @@ if __name__ == "__main__":
     generated_captions = []
     true_captions = []
 
+    # Decoding behavior (beam vs sampling, top-p, num_return_sequences, etc.)
+    # is fully controlled by this json.
     inference_config = json.load(open(inference_config_path))
 
     for i in range(len(test_dset)):
@@ -150,6 +160,7 @@ if __name__ == "__main__":
 
     if test_split not in ["clotho_analysis", "test"]:
         for i in range(len(sample_names)):
+            # Keep all sampled captions for later reranking stages.
             out_json.append(
                 {
                     "idx": i,
@@ -169,5 +180,6 @@ if __name__ == "__main__":
             )
 
     with open(os.path.join(inference_dir, "gen_captions.json"), "w") as f:
+        # This file is the handoff artifact for decoder/encoder reranking.
         f.write(json.dumps(out_json, indent=4))
         f.write("\n")

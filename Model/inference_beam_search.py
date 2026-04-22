@@ -27,7 +27,7 @@ test_split = sys.argv[3]
 is_conformer_encoder = sys.argv[4] == "True" if len(sys.argv) > 4 else False
 conformer_config_json = sys.argv[5] if len(sys.argv) > 5 else None
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
 strip_punct_table = str.maketrans("", "", punctuation)
 
 

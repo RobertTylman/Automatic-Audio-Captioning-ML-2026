@@ -2,7 +2,7 @@
     "do_sample": true,
     "temperature": 0.5,
     "top_p": 0.95,
-    "num_return_sequences": 50,
+    "num_return_sequences": 64,
     "early_stopping": true,
     "min_length": 5,
     "max_length": 30,

@@ -24,19 +24,19 @@ conformer_config_json = sys.argv[3]
 test_split = sys.argv[4]
 use_ensemble = False
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
 strip_punct_table = str.maketrans("", "", punctuation)
 data_collator = ClothoCaptioningDataCollator(decoder_only=True)
 
 
 @torch.no_grad()
 def collect_length_normalized_nll(model, dset, samp_data, gen_caption):
-    # append generated caption
+    # Tokenize each generated candidate caption.
     samp_captions = [dset.tokenize(gcap) for gcap in gen_caption]
 
     assert all([type(s) == np.ndarray for s in samp_captions])
 
-    # clone encoder inputs for all captions
+    # Encode the audio once, then reuse that audio encoding for all candidates.
     samp_enc_input = torch.tensor(samp_data["encoder_input"]).to(device).unsqueeze(0)
     samp_enc_mask = torch.tensor(samp_data["attention_mask"]).to(device).unsqueeze(0)
 
@@ -54,15 +54,19 @@ def collect_length_normalized_nll(model, dset, samp_data, gen_caption):
     else:
         for i in ["last_hidden_state", "attention_mask"]:
             if encoder_outputs[i] is not None:
+                # Expand encoder outputs to batch size = number of candidates,
+                # so we can score all candidate texts in one forward pass.
                 keep_dim = [-1] * (int(encoder_outputs[i].dim()) - 1)
                 encoder_outputs[i] = encoder_outputs[i].expand(
                     len(samp_captions), *keep_dim
                 )
 
+    # Build decoder labels (teacher forcing) for each candidate text.
     data_batch = [{"labels": samp_captions[i]} for i in range(len(samp_captions))]
     data_batch = data_collator(data_batch)
     data_batch = {k: v.to(device) for k, v in data_batch.items()}
 
+    # In for_inference mode, model returns sequence-level length-normalized loss.
     nlls = model(
         encoder_outputs=encoder_outputs,
         attention_mask=encoder_outputs.attention_mask,
@@ -84,6 +88,7 @@ def rerank_captions_with_nll(
     samp_generated_captions,
     samp_sources=None,
 ):
+    # Lower NLL is better.
     samp_cap_ranked_idx = np.argsort(nlls)
     samp_json_obj = {
         "idx": samp_idx,
@@ -130,6 +135,7 @@ if __name__ == "__main__":
     true_nlls = []
     gen_nlls = []
 
+    # Input comes from inference_sampling.py.
     gen_captions = json.load(open(os.path.join(inference_dir, "gen_captions.json")))
     print(json.dumps(gen_captions[0], indent=4))
 
@@ -144,6 +150,7 @@ if __name__ == "__main__":
 
         samp_gen_caps = gen_captions[i]["generated_captions"]
 
+        # Compute one NLL score per generated candidate caption.
         _, gen_nll = collect_length_normalized_nll(
             model, inference_dset, samp, samp_gen_caps
         )
@@ -185,5 +192,6 @@ if __name__ == "__main__":
     with open(
         os.path.join(inference_dir, "gen_captions_decoder_reranked.json"), "w"
     ) as f:
+        # Output is consumed by hybrid_scoring.py.
         f.write(json.dumps(reranked_json, indent=4))
         f.write("\n")
