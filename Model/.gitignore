@@ -1,0 +1,16 @@
+# cache files
+**/__pycache__/
+**/cache/
+
+# evaluator files
+**/*stanford-corenlp-3.6.0*/
+
+# dataset folder
+clotho*/
+
+# model/experiment folder
+exp*/
+instructor*/
+
+# temporary files
+tmp*/
