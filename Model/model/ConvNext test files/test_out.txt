@@ -1,0 +1,31 @@
+/opt/anaconda3/envs/audio_captioning/lib/python3.10/site-packages/transformers/models/bart/modeling_bart.py:457: FutureWarning: The class `PretrainedBartModel` has been depreciated, please use `BartPreTrainedModel` instead.
+  warnings.warn(
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+/opt/anaconda3/envs/audio_captioning/lib/python3.10/site-packages/torch/nn/utils/weight_norm.py:144: FutureWarning: `torch.nn.utils.weight_norm` is deprecated in favor of `torch.nn.utils.parametrizations.weight_norm`.
+  WeightNorm.apply(module, name, dim)
+
+Loading weights:   0%|          | 0/180 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 180/180 [00:00<00:00, 17777.92it/s]
+[transformers] [1mConvNextModel LOAD REPORT[0m from: facebook/convnext-tiny-224
+Key               | Status     |  | 
+------------------+------------+--+-
+classifier.bias   | UNEXPECTED |  | 
+classifier.weight | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+[transformers] `use_return_dict` is deprecated! Use `return_dict` instead!
+
+Initializing Fused Model...
+Running forward pass...
+Forward pass successful. Output loss: 11.037947654724121
+Logits shape: torch.Size([2, 10, 50265])
+Decoder hidden states returned: False
+
+Testing Text Generation Pipeline (from forward logits)...
+Generated IDs shape: torch.Size([2, 10])
+
+Generated Mock Captions (will be gibberish since weights are random):
+Caption 1: restrial ScrollsGallery emerovery Clarke passages disruptionsSteamFine
+Caption 2: restrial documentaries Movies Planned unintYoungTransformacterialildaesse
+

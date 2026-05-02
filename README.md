@@ -78,8 +78,19 @@ Our work aims to extend and improve this model for the Spring 2026 Machine Liste
   - summarize/select final output with an LLM.
 - [ ] Integrate a state-of-the-art LLM as a caption refinement/reranking module (e.g., **GPT-5.4**, **Gemini-family models**), then compare against non-LLM baselines.
 - [ ] Benchmark open-source LLM alternatives for the same refinement stage (e.g., **Qwen** and **Gemma** families) to study quality/cost trade-offs.
-- [ ] Prototype **multi-encoder fusion** (e.g., ConvNeXt + AST) to combine complementary acoustic representations into a richer decoder input.
+- [x] Prototype **multi-encoder fusion** (ConvNeXt + BEATs) to combine complementary acoustic representations into a richer decoder input.
+  - **Important Note:** The original single-encoder architecture is still available in `Model/model/modeling_beats_conformer_bart.py` for running A/B baseline tests. To use the new multi-encoder fusion architecture,  training scripts need to be updated to import and instantiate the `FusedEncodersConformerBartSeq2SeqForCaptioning` class from `Model/model/modeling_fused_conformer_bart.py`.
+  - **Fusion Strategy:** We implemented **Early Feature Fusion**. Both BEATs and ConvNeXt process the input parallelly, and their outputs are temporally aligned and concatenated *before* being passed to the Conformer post-encoder. We did *not* implement late fusion (where BEATs goes through the Conformer first and is combined with ConvNeXt later).
+  - **Abhijeet:::: Adding AST (Audio Spectrogram Transformer):** 
+  I think we have two options: build directly upon `Model/model/modeling_fused_conformer_bart.py`, or leave it untouched and create another one that will do all three. That way we can experiment with baseline, two encoders, and three encoders. If we go with the first option, we should do this: initialize the AST wrapper in `__init__`, increase the `fused_dim` in `self.fusion_mlp` to account for the AST embedding size, and inside `encode_audio()`: extract AST features, use `F.interpolate` to match the BEATs `target_seq_len` (exactly as done for ConvNeXt), and simply append the AST features to the `torch.cat([beats, convnext, ast], dim=-1)` list!
 - [ ] Investigate fine-tuning strategies for cross-domain adaptation under single-dataset and multi-dataset training.
+
+### Architecture Updates (Dual-Encoder Fusion)
+During our recent development session, we implemented the dual-encoder fusion without altering the baseline. Here is a summary of the structural additions:
+- **`Model/ConvNext.py`**: Added a lightweight wrapper to pull the ConvNeXt model directly from Hugging Face `transformers`.
+- **`Model/model/modeling_fused_conformer_bart.py`**: Created the new dual-encoder architecture that fuses BEATs and ConvNeXt via 1D temporal interpolation and MLP aggregation.
+- **`Model/model/ConvNext test files/test_fusion.py`**: Created a standalone test script to verify tensor shapes and ensure the end-to-end forward pass and text generation pipeline work mathematically.
+- *Note: Original baseline files (`modeling_beats_conformer_bart.py`, `BEATs.py`, `backbone.py`, etc.) were left completely untouched to ensure safe A/B testing.*
 
 ### Baseline-to-Advanced Experiment Tracks
 1. **Encoder Track:** ConvNeXt vs AST vs fused encoders.
@@ -163,6 +174,21 @@ graph TD
     - **CLAP Filtering:** Uses CLAP to compare each caption to the original audio, scoring similarity and discarding weak candidates.
     - **Hybrid Reranking:** Applied to consolidate the best candidates.
     - **LLM Summary:** A final LLM pass summarizes the top results into a single, high-quality caption.
+
+### Tensor Flow (Dual-Encoder Fusion)
+To understand how the early fusion is implemented, here is the tensor journey during a forward pass. You can verify this yourself at any time by running `python "Model/model/ConvNext test files/test_fusion.py"` (which uses a mock 1-second audio clip with a batch size of 2):
+```text
+[DEBUG] BEATs output shape: torch.Size([2, 48, 768])
+[DEBUG] ConvNeXt raw output shape: torch.Size([2, 12, 768])
+[DEBUG] ConvNeXt interpolated shape: torch.Size([2, 48, 768])
+[DEBUG] Fused (Concatenated) shape: torch.Size([2, 48, 1536])
+[DEBUG] Post-Aggregation MLP shape: torch.Size([2, 48, 768])
+```
+- **BEATs** outputs 48 time tokens.
+- **ConvNeXt** outputs 12 time tokens due to different spatial downsampling.
+- **Interpolation:** We apply 1D linear interpolation across the time axis to stretch ConvNeXt's 12 tokens to 48 tokens.
+- **Concatenation:** We concatenate the two sequences along the feature dimension (768 + 768 = 1536).
+- **Aggregation MLP:** A Jung-style aggregation block (`LayerNorm -> Linear -> GELU -> Linear`) compresses the 1536-dimensional vector back to 768 dimensions for the Conformer post-encoder.
 
 ### Evaluation: FENSE
 To ensure accuracy and readability, we utilize the **FENSE** metric:
