@@ -35,37 +35,43 @@ The outputs of these encoders are combined through a sophisticated alignment pip
 
 ```mermaid
 graph TD
-    subgraph Model ["Architecture: Multi-Encoder Fusion + Conformer Refinement"]
-        Audio[Audio Input] --> Mel(Log Mel Spectrogram)
-        
-        subgraph Encoders ["Ensemble Feature Extraction"]
-            Mel --> BEATs[BEATs Encoder]
-            Mel --> ConvNeXt[ConvNeXt Encoder]
-            Mel -.-> AST[AST Encoder]
-        end
-        
-        BEATs -- "Temporal Dependencies" --> Concat
-        ConvNeXt -- "Local Texture + Timbre" --> Concat
-        AST -.-> Concat
-        
-        Concat[Concatenation & Alignment] --> MLP[Aggregation MLP]
-        MLP --> Conformer[Conformer Post-Encoder]
-        
-        Conformer -- "Refined Features" --> Project[BART Projection]
-        Project --> B_Enc[BART Encoder]
-        B_Enc --> B_Dec[BART Decoder]
-        
-        subgraph Generation ["Decoding & Reranking"]
-            B_Dec -- "Nucleus Sampling" --> Cands[64 Candidate Captions]
-            Cands --> CLAP{CLAP Scoring}
-            CLAP -- "Similarity Ranking" --> Rerank[Hybrid Reranking]
-            Rerank --> LLM[LLM Summarization]
-            LLM --> Final((Final Output Caption))
-        end
+    A[Audio Input] --> B(Log Mel Spectrogram)
+    
+    subgraph Encoders ["Parallel Encoder Ensemble"]
+        B --> E1[BEATs Encoder]
+        B --> E2[ConvNeXt Encoder]
+        B -.-> E3[AST Encoder]
     end
+    
+    E1 --> F[Concatenation & Alignment]
+    E2 --> F
+    E3 -.-> F
+    
+    F --> G[Aggregation MLP]
+    G --> H[Conformer Post-Encoder]
+    H --> I[BART Projection]
+    
+    subgraph Decoder ["BART Transformer Stage"]
+        I --> J[BART Encoder]
+        J --> K[BART Decoder]
+    end
+    
+    K --> L[Nucleus Sampling]
+    
+    subgraph Rerank ["Reranking & Summarization Pipeline"]
+        L --> M[64 Candidate Captions]
+        M --> N{CLAP Scoring}
+        N --> O[Hybrid Reranking]
+        O --> P[LLM Summarization]
+    end
+    
+    P --> Q((Final Output Caption))
 
-    style Model fill:#f9f9ff,stroke:#333,stroke-width:2px
-    style Final fill:#e1f7d5,stroke:#2e7d32,stroke-width:3px
+    %% Styling
+    style Encoders fill:#f5f5f5,stroke:#333,stroke-dasharray: 5 5
+    style Decoder fill:#fff4dd,stroke:#d4a017
+    style Rerank fill:#e1f5fe,stroke:#01579b
+    style Q fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 ```
 
 ---
