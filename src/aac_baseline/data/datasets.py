@@ -25,12 +25,10 @@ class ClothoCaptionDataset(Dataset):
         self,
         audio_dir: str,
         caption_csv: str,
-        sample_rate: int,
         caption_mode: str = "random",
     ) -> None:
         self.audio_dir = Path(audio_dir)
         self.caption_csv = Path(caption_csv)
-        self.sample_rate = sample_rate
         self.caption_mode = caption_mode
 
         dataframe = pd.read_csv(self.caption_csv)
@@ -66,24 +64,19 @@ class ClothoCaptionDataset(Dataset):
 
         raise ValueError(f"Unsupported caption_mode: {self.caption_mode}")
 
-    def _load_audio(self, audio_path: str) -> torch.Tensor:
+    def _load_audio(self, audio_path: str) -> tuple[torch.Tensor, int]:
         waveform, sample_rate = torchaudio.load(audio_path)
 
-        # The model expects mono audio. If a file is stereo, we average channels.
+        # We collapse to mono here because all current encoder branches are
+        # single-channel. Sample-rate conversion is intentionally NOT done here.
         if waveform.size(0) > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
-
-        if sample_rate != self.sample_rate:
-            waveform = torchaudio.functional.resample(
-                waveform, orig_freq=sample_rate, new_freq=self.sample_rate
-            )
-
-        return waveform.squeeze(0)
+        return waveform.squeeze(0), int(sample_rate)
 
     def __getitem__(self, index: int) -> Dict:
         example = self.examples[index]
         caption_text = self._select_caption(example)
-        waveform = self._load_audio(example["audio_path"])
+        waveform, sample_rate = self._load_audio(example["audio_path"])
 
         return {
             "sample_id": example["file_name"],
@@ -92,5 +85,5 @@ class ClothoCaptionDataset(Dataset):
             "num_samples": int(waveform.numel()),
             "caption_text": caption_text,
             "all_captions": example["captions"],
-            "sample_rate": self.sample_rate,
+            "sample_rate": sample_rate,
         }

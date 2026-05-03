@@ -4,7 +4,7 @@ from pathlib import Path
 
 import lightning as L
 import yaml
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 
 
@@ -58,10 +58,9 @@ def main() -> None:
 
     logger = build_logger(config)
     callbacks = [
-        LearningRateMonitor(logging_interval="step"),
         ModelCheckpoint(
             dirpath=Path(config["logging"]["save_dir"]) / "checkpoints",
-            filename="aac-{step:06d}-{val_loss:.4f}",
+            filename="aac-epoch{epoch:02d}-valloss{val_loss:.4f}",
             save_top_k=3,
             monitor="val_loss",
             mode="min",
@@ -76,7 +75,7 @@ def main() -> None:
         devices=config["training"].get("devices", "auto"),
         strategy=config["training"].get("strategy", "auto"),
         precision=config["training"].get("precision", "16-mixed"),
-        max_steps=config["training"].get("max_steps", 10000),
+        max_epochs=config["training"].get("max_epochs", 10),
         accumulate_grad_batches=config["training"].get("accumulate_grad_batches", 1),
         gradient_clip_val=config["training"].get("grad_clip_val", 1.0),
         log_every_n_steps=config["training"].get("log_every_n_steps", 10),

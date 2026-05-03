@@ -52,7 +52,8 @@ class BartCaptionDecoder(nn.Module):
             self.config.d_model,
             padding_idx=self.config.pad_token_id,
         )
-        self.decoder = BartDecoder(self.config, embed_tokens=self.token_embedding)
+        self.decoder = BartDecoder(self.config)
+        self.decoder.embed_tokens = self.token_embedding
         self.lm_head = nn.Linear(self.config.d_model, self.config.vocab_size, bias=False)
         self.final_logits_bias = nn.Parameter(torch.zeros(1, self.config.vocab_size))
 

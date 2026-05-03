@@ -2,7 +2,12 @@ import torch
 import torch.nn as nn
 import torchaudio
 
-from ..common import EncoderOutput, downsample_lengths, lengths_to_padding_mask
+from ..common import (
+    EncoderOutput,
+    downsample_lengths,
+    lengths_to_padding_mask,
+    resample_batch_waveforms,
+)
 from .base import AudioEncoderBase
 
 
@@ -20,7 +25,7 @@ class ConvNextDummyEncoder(AudioEncoderBase):
 
     def __init__(self, config: dict, sample_rate: int = 16000) -> None:
         super().__init__()
-        self.sample_rate = sample_rate
+        self.sample_rate = config.get("target_sample_rate", sample_rate)
         self.n_mels = config["n_mels"]
         self.hop_length = config["hop_length"]
         self.hidden_size = config["hidden_size"]
@@ -62,7 +67,15 @@ class ConvNextDummyEncoder(AudioEncoderBase):
         self,
         waveforms: torch.Tensor,
         waveform_lengths: torch.Tensor,
+        sample_rates: torch.Tensor,
     ) -> EncoderOutput:
+        waveforms, waveform_lengths = resample_batch_waveforms(
+            waveforms=waveforms,
+            waveform_lengths=waveform_lengths,
+            sample_rates=sample_rates,
+            target_sample_rate=self.sample_rate,
+        )
+
         mel = self._waveforms_to_log_mel(waveforms).unsqueeze(1)
         features = self.conv_stack(mel)
 

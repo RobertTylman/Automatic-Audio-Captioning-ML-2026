@@ -1,15 +1,15 @@
 seed: 42
 
 data:
-  train_audio_dir: data/clotho/development
-  train_caption_csv: data/clotho/clotho_captions_development.csv
-  val_audio_dir: data/clotho/validation
-  val_caption_csv: data/clotho/clotho_captions_validation.csv
+  train_audio_dir: /scratch/rht9410/clotho/development
+  train_caption_csv: /scratch/rht9410/clotho/clotho_captions_development.csv
+  val_audio_dir: /scratch/rht9410/clotho/validation
+  val_caption_csv: /scratch/rht9410/clotho/clotho_captions_validation.csv
   sample_rate: 16000
   train_caption_mode: random
   val_caption_mode: first
   batch_size: 4
-  num_workers: 4
+  num_workers: 3
   max_caption_tokens: 32
   tokenizer_name: facebook/bart-base
 
@@ -30,8 +30,8 @@ model:
     activation_dropout: 0.1
 
   beats_encoder:
-    trainable: true
-    pretrained_checkpoint_path:
+    target_sample_rate: 16000
+    pretrained_checkpoint_path: /scratch/rht9410/clotho/beats_checkpoint/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt1.pt
     aggregation_mode: concat_all
     include_input_embedding: false
     aggregation_hidden_size: 768
@@ -64,7 +64,7 @@ model:
       predictor_class: 527
 
   convnext_encoder:
-    trainable: true
+    target_sample_rate: 16000
     n_mels: 128
     n_fft: 1024
     hop_length: 640
@@ -88,8 +88,7 @@ model:
 training:
   learning_rate: 3.0e-4
   weight_decay: 0.01
-  warmup_steps: 500
-  max_steps: 10000
+  max_epochs: 10
   grad_clip_val: 1.0
   precision: 16-mixed
   accelerator: auto
@@ -99,7 +98,7 @@ training:
   val_check_interval: 1.0
   limit_val_batches: 1.0
   accumulate_grad_batches: 1
-  freeze_modules: []
+  freeze_modules: []  # beats_encoder, convnext_encoder, fusion, postencoder, decoder
   validation_preview_count: 4
 
 logging:

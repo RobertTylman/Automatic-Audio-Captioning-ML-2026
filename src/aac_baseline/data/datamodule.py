@@ -18,13 +18,11 @@ class ClothoDataModule(L.LightningDataModule):
         self.train_dataset = ClothoCaptionDataset(
             audio_dir=self.data_config["train_audio_dir"],
             caption_csv=self.data_config["train_caption_csv"],
-            sample_rate=self.data_config["sample_rate"],
             caption_mode=self.data_config.get("train_caption_mode", "random"),
         )
         self.val_dataset = ClothoCaptionDataset(
             audio_dir=self.data_config["val_audio_dir"],
             caption_csv=self.data_config["val_caption_csv"],
-            sample_rate=self.data_config["sample_rate"],
             caption_mode=self.data_config.get("val_caption_mode", "first"),
         )
 

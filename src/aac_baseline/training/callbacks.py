@@ -26,6 +26,7 @@ class WandbValidationSamplesCallback(Callback):
         predictions = pl_module.model.generate(
             waveforms=preview["waveforms"][:num_samples].to(pl_module.device),
             waveform_lengths=preview["waveform_lengths"][:num_samples].to(pl_module.device),
+            sample_rates=preview["sample_rates"][:num_samples].to(pl_module.device),
         )
         decoded_predictions = preview["tokenizer"].batch_decode(
             predictions.detach().cpu(),
@@ -44,7 +45,7 @@ class WandbValidationSamplesCallback(Callback):
                 decoded_predictions[index],
                 wandb.Audio(
                     preview["waveforms"][index].detach().cpu().numpy(),
-                    sample_rate=preview["sample_rate"],
+                    sample_rate=int(preview["sample_rates"][index].item()),
                 ),
             )
 

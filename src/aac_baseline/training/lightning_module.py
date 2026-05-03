@@ -20,24 +20,39 @@ class AudioCaptioningLightningModule(L.LightningModule):
         return self.model(
             waveforms=batch["waveforms"],
             waveform_lengths=batch["waveform_lengths"],
+            sample_rates=batch["sample_rates"],
             labels=batch["labels"],
         )
 
     def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         output = self(batch)
-        self.log("train_loss", output.loss, prog_bar=True, on_step=True, on_epoch=True)
+        self.log(
+            "train_loss",
+            output.loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            batch_size=batch["waveforms"].size(0),
+        )
         return output.loss
 
     def validation_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         output = self(batch)
-        self.log("val_loss", output.loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log(
+            "val_loss",
+            output.loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            batch_size=batch["waveforms"].size(0),
+        )
 
         if batch_idx == 0:
             self.cached_validation_preview = {
                 "waveforms": batch["waveforms"][:],
                 "waveform_lengths": batch["waveform_lengths"][:],
+                "sample_rates": batch["sample_rates"][:],
                 "caption_texts": batch["caption_texts"],
-                "sample_rate": batch["sample_rate"],
                 "tokenizer": batch["tokenizer"],
             }
 
@@ -49,24 +64,4 @@ class AudioCaptioningLightningModule(L.LightningModule):
             lr=self.training_config["learning_rate"],
             weight_decay=self.training_config["weight_decay"],
         )
-
-        warmup_steps = self.training_config.get("warmup_steps", 0)
-        max_steps = self.training_config.get("max_steps", 10000)
-
-        def lr_lambda(current_step: int) -> float:
-            if warmup_steps > 0 and current_step < warmup_steps:
-                return float(current_step + 1) / float(warmup_steps)
-
-            remaining_steps = max(max_steps - warmup_steps, 1)
-            progress = float(current_step - warmup_steps) / float(remaining_steps)
-            return max(0.1, 1.0 - progress)
-
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
-
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-            },
-        }
+        return optimizer

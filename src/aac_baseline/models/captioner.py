@@ -62,10 +62,11 @@ class DCASE24BaselineCaptioner(nn.Module):
         self,
         waveforms: torch.Tensor,
         waveform_lengths: torch.Tensor,
+        sample_rates: torch.Tensor,
     ) -> EncoderOutput:
         #here we are inferencing the encoders so we have the outputs of beats and the other encoders
-        beats_output = self.beats_encoder(waveforms, waveform_lengths)
-        convnext_output = self.convnext_encoder(waveforms, waveform_lengths)
+        beats_output = self.beats_encoder(waveforms, waveform_lengths, sample_rates)
+        convnext_output = self.convnext_encoder(waveforms, waveform_lengths, sample_rates)
         #and then we are passing them to the fusion mechanism
         if self.fusion_stage == "early":
             # Early fusion means we combine the encoder branches first and let
@@ -86,10 +87,11 @@ class DCASE24BaselineCaptioner(nn.Module):
         self,
         waveforms: torch.Tensor,
         waveform_lengths: torch.Tensor,
+        sample_rates: torch.Tensor,
         labels: torch.Tensor,
     ) -> DecoderOutput:
         #this is the forward of the model
-        encoder_output = self.encode_audio(waveforms, waveform_lengths)
+        encoder_output = self.encode_audio(waveforms, waveform_lengths, sample_rates)
         #the encode_audio function takes the input, passes it through all the encoders, fuses the encoders outputs
         #and then it passes it through the conformer, so the encoder_output is the output of the conformer 
         #then we pass it to the BART decoder
@@ -104,9 +106,10 @@ class DCASE24BaselineCaptioner(nn.Module):
         self,
         waveforms: torch.Tensor,
         waveform_lengths: torch.Tensor,
+        sample_rates: torch.Tensor,
         max_length: int = 32,
     ) -> torch.Tensor:
-        encoder_output = self.encode_audio(waveforms, waveform_lengths)
+        encoder_output = self.encode_audio(waveforms, waveform_lengths, sample_rates)
         return self.decoder.greedy_decode(
             encoder_hidden_states=encoder_output.sequence,
             encoder_padding_mask=encoder_output.padding_mask,

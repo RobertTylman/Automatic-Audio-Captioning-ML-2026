@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from ..common import EncoderOutput
+from ..common import EncoderOutput, resample_batch_waveforms
 from .base import AudioEncoderBase
 from .beats_vendor import BEATs, BEATsConfig
 
@@ -50,7 +50,7 @@ class BeatsEncoderAdapter(AudioEncoderBase):
 
     def __init__(self, config: dict, sample_rate: int = 16000) -> None:
         super().__init__()
-        self.sample_rate = sample_rate
+        self.sample_rate = config.get("target_sample_rate", sample_rate)
         self.config = config
 
         checkpoint_path = config.get("pretrained_checkpoint_path")
@@ -140,12 +140,20 @@ class BeatsEncoderAdapter(AudioEncoderBase):
         self,
         waveforms: torch.Tensor,
         waveform_lengths: torch.Tensor,
+        sample_rates: torch.Tensor,
     ) -> EncoderOutput:
         if self.sample_rate != 16000:
             raise ValueError(
                 "The vendored BEATs preprocessing is defined for 16 kHz input. "
                 f"Got sample_rate={self.sample_rate}."
             )
+
+        waveforms, waveform_lengths = resample_batch_waveforms(
+            waveforms=waveforms,
+            waveform_lengths=waveform_lengths,
+            sample_rates=sample_rates,
+            target_sample_rate=self.sample_rate,
+        )
 
         padding_mask = torch.arange(
             waveforms.size(1), device=waveforms.device

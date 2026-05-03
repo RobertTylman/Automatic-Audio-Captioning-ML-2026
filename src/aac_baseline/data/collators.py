@@ -22,12 +22,14 @@ class AudioCaptioningCollator:
         max_audio_len = max(example["num_samples"] for example in batch)
         padded_waveforms = []
         waveform_lengths = []
+        sample_rates = []
 
         for example in batch:
             waveform = example["waveform"]
             pad_amount = max_audio_len - waveform.numel()
             padded_waveforms.append(torch.nn.functional.pad(waveform, (0, pad_amount)))
             waveform_lengths.append(example["num_samples"])
+            sample_rates.append(example["sample_rate"])
 
         tokenized = self.tokenizer(
             [example["caption_text"] for example in batch],
@@ -43,12 +45,12 @@ class AudioCaptioningCollator:
         return {
             "waveforms": torch.stack(padded_waveforms, dim=0),
             "waveform_lengths": torch.tensor(waveform_lengths, dtype=torch.long),
+            "sample_rates": torch.tensor(sample_rates, dtype=torch.long),
             "labels": labels,
             "decoder_attention_mask": tokenized["attention_mask"],
             "sample_ids": [example["sample_id"] for example in batch],
             "audio_paths": [example["audio_path"] for example in batch],
             "caption_texts": [example["caption_text"] for example in batch],
             "all_captions": [example["all_captions"] for example in batch],
-            "sample_rate": batch[0]["sample_rate"],
             "tokenizer": self.tokenizer,
         }
