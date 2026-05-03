@@ -7,6 +7,7 @@ import torch
 class EncoderOutput:
     sequence: torch.Tensor
     padding_mask: torch.Tensor
+    hidden_states: list[torch.Tensor] | None = None
 
 
 def lengths_to_padding_mask(lengths: torch.Tensor, max_length: int) -> torch.Tensor:

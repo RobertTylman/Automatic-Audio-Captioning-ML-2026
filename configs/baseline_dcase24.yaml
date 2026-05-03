@@ -31,15 +31,37 @@ model:
 
   beats_encoder:
     trainable: true
-    n_mels: 128
-    n_fft: 1024
-    hop_length: 320
-    hidden_size: 512
-    num_heads: 8
-    ff_multiplier: 4
-    num_layers: 4
-    dropout: 0.1
+    pretrained_checkpoint_path:
+    aggregation_mode: concat_all
+    include_input_embedding: false
     aggregation_hidden_size: 768
+    aggregation_intermediate_dim: 3072
+    beats_config:
+      input_patch_size: 16
+      embed_dim: 512
+      conv_bias: false
+      encoder_layers: 12
+      encoder_embed_dim: 768
+      encoder_ffn_embed_dim: 3072
+      encoder_attention_heads: 12
+      activation_fn: gelu
+      layer_wise_gradient_decay_ratio: 1.0
+      layer_norm_first: false
+      deep_norm: false
+      dropout: 0.1
+      attention_dropout: 0.1
+      activation_dropout: 0.0
+      encoder_layerdrop: 0.0
+      dropout_input: 0.0
+      conv_pos: 128
+      conv_pos_groups: 16
+      relative_position_embedding: false
+      num_buckets: 320
+      max_distance: 1280
+      gru_rel_pos: false
+      finetuned_model: false
+      predictor_dropout: 0.1
+      predictor_class: 527
 
   convnext_encoder:
     trainable: true

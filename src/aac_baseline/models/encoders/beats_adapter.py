@@ -1,29 +1,29 @@
 import torch
 import torch.nn as nn
-import torchaudio
 
-from ..common import EncoderOutput, lengths_to_padding_mask
+from ..common import EncoderOutput
 from .base import AudioEncoderBase
+from .beats_vendor import BEATs, BEATsConfig
 
 
-class MultiLayerAggregator(nn.Module):
+class ConcatThenCompressAggregator(nn.Module):
     """
-    This module implements the DCASE 2024 submission:
+    This is the exact aggregation pattern described in the DCASE 2024 paper:
 
-    1. collect hidden states from multiple encoder layers
+    1. collect several BEATs hidden layers
     2. concatenate them along the feature dimension
-    3. compress them back to one working hidden size
+    3. compress them with LayerNorm -> Linear -> GELU -> Linear
 
-    This is intentionally easier to reason about than the 2023 repo's
-    "pick one layer or learn a weighted average of layers" logic.
+    We keep this module separate so the 2024 aggregation idea stays easy to
+    inspect without getting inde the BEATs implementation.
     """
 
-    def __init__(self, input_dim: int, hidden_dim: int) -> None:
+    def __init__(self, input_dim: int, output_dim: int, intermediate_dim: int) -> None:
         super().__init__()
         self.norm = nn.LayerNorm(input_dim)
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc1 = nn.Linear(input_dim, intermediate_dim)
         self.act = nn.GELU()
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc2 = nn.Linear(intermediate_dim, output_dim)
 
     def forward(self, layer_outputs: list[torch.Tensor]) -> torch.Tensor:
         concatenated = torch.cat(layer_outputs, dim=-1)
@@ -36,82 +36,130 @@ class MultiLayerAggregator(nn.Module):
 
 class BeatsEncoderAdapter(AudioEncoderBase):
     """
-    This is a scaffold-friendly BEATs-style adapter.
+    Clean wrapper around the real BEATs implementation used by the captioning
+    baseline repo.
 
-    Important:
-    - The public interface is the part we want to keep.
-    - The internal backbone is intentionally lightweight for now.
+    Important distinction:
+    - the heavy BEATs code lives in `beats_vendor/`
+    - this adapter owns the project-facing interface
+    - the adapter also owns the 2024 layer aggregation pipeline
 
-    Later, one teammate can replace the internal stack with the real BEATs
-    checkpoint loader without changing the rest of the training pipeline.
+    That separation lets us keep the scaffold readable while still using the
+    exact BEATs preprocessing and hidden-state behavior from the prior system.
     """
 
     def __init__(self, config: dict, sample_rate: int = 16000) -> None:
         super().__init__()
         self.sample_rate = sample_rate
-        self.n_mels = config["n_mels"]
-        self.hop_length = config["hop_length"]
-        self.hidden_size = config["hidden_size"]
+        self.config = config
 
-        self.mel_transform = torchaudio.transforms.MelSpectrogram(
-            sample_rate=sample_rate,
-            n_fft=config["n_fft"],
-            hop_length=config["hop_length"],
-            n_mels=config["n_mels"],
-        )
+        checkpoint_path = config.get("pretrained_checkpoint_path")
+        checkpoint = None
+        if checkpoint_path:
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            beats_config = BEATsConfig(checkpoint["cfg"])
+        else:
+            beats_config = BEATsConfig(config["beats_config"])
 
-        self.input_projection = nn.Linear(config["n_mels"], self.hidden_size)
-        self.layers = nn.ModuleList(
-            [
-                nn.TransformerEncoderLayer(
-                    d_model=self.hidden_size,
-                    nhead=config["num_heads"],
-                    dim_feedforward=self.hidden_size * config["ff_multiplier"],
-                    dropout=config["dropout"],
-                    batch_first=True,
-                    activation="gelu",
-                )
-                for _ in range(config["num_layers"])
-            ]
-        )
-        self.aggregator = MultiLayerAggregator(
-            input_dim=self.hidden_size * config["num_layers"],
-            hidden_dim=config["aggregation_hidden_size"],
-        )
+        self.beats = BEATs(beats_config)
 
-    def _waveforms_to_log_mel(self, waveforms: torch.Tensor) -> torch.Tensor:
-        mel = self.mel_transform(waveforms)
-        mel = torch.log(mel.clamp(min=1e-5))
-        return mel.transpose(1, 2)
+        if checkpoint is not None:
+            self.beats.load_state_dict(checkpoint["model"])
 
-    def _lengths_to_frame_lengths(self, waveform_lengths: torch.Tensor, max_frames: int) -> torch.Tensor:
-        frame_lengths = torch.div(
-            waveform_lengths + self.hop_length - 1,
-            self.hop_length,
-            rounding_mode="floor",
-        )
-        return frame_lengths.clamp(max=max_frames)
+        spec_aug_config = config.get("spec_aug")
+        if spec_aug_config:
+            self.beats.add_spec_aug(spec_aug_config)
+
+        self.aggregation_mode = config.get("aggregation_mode", "concat_all")
+        self.include_input_embedding = config.get("include_input_embedding", False)
+        self.aggregation_hidden_size = config["aggregation_hidden_size"]
+        self.encoder_embed_dim = beats_config.encoder_embed_dim
+
+        if self.aggregation_mode == "concat_all":
+            num_states = beats_config.encoder_layers
+            if self.include_input_embedding:
+                num_states += 1
+
+            self.aggregator = ConcatThenCompressAggregator(
+                input_dim=self.encoder_embed_dim * num_states,
+                output_dim=self.aggregation_hidden_size,
+                intermediate_dim=config.get("aggregation_intermediate_dim", 3072),
+            )
+        elif self.aggregation_mode == "single_layer":
+            self.selected_layer_index = config.get("selected_layer_index", -1)
+            self.output_projection = self._build_projection_if_needed()
+        elif self.aggregation_mode == "weighted_sum":
+            num_states = beats_config.encoder_layers
+            if self.include_input_embedding:
+                num_states += 1
+
+            self.layer_weights = nn.Parameter(torch.ones(num_states, 1))
+            self.output_projection = self._build_projection_if_needed()
+        else:
+            raise ValueError(f"Unsupported BEATs aggregation mode: {self.aggregation_mode}")
+
+    def _build_projection_if_needed(self) -> nn.Module | None:
+        if self.encoder_embed_dim == self.aggregation_hidden_size:
+            return None
+
+        return nn.Linear(self.encoder_embed_dim, self.aggregation_hidden_size)
+
+    def _select_hidden_states(self, hidden_states: list[torch.Tensor]) -> list[torch.Tensor]:
+        # The adapted BEATs implementation returns one extra state before the
+        # transformer layers. The 2024 report talks about encoder layers'
+        # outputs, so by default we exclude the input embedding and keep only
+        # the real transformer layer outputs.
+        if self.include_input_embedding:
+            return hidden_states
+
+        return hidden_states[1:]
+
+    def _aggregate_hidden_states(self, hidden_states: list[torch.Tensor]) -> torch.Tensor:
+        selected_hidden_states = self._select_hidden_states(hidden_states)
+
+        if self.aggregation_mode == "concat_all":
+            return self.aggregator(selected_hidden_states)
+
+        if self.aggregation_mode == "single_layer":
+            sequence = selected_hidden_states[self.selected_layer_index]
+            if self.output_projection is not None:
+                sequence = self.output_projection(sequence)
+            return sequence
+
+        if self.aggregation_mode == "weighted_sum":
+            normalized_weights = nn.functional.softmax(self.layer_weights, dim=0)
+            stacked_states = torch.stack(selected_hidden_states, dim=-2)
+            sequence = (stacked_states * normalized_weights).sum(dim=-2)
+            if self.output_projection is not None:
+                sequence = self.output_projection(sequence)
+            return sequence
+
+        raise RuntimeError("Unreachable aggregation branch.")
 
     def forward(
         self,
         waveforms: torch.Tensor,
         waveform_lengths: torch.Tensor,
     ) -> EncoderOutput:
-        features = self._waveforms_to_log_mel(waveforms)
-        features = self.input_projection(features)
+        if self.sample_rate != 16000:
+            raise ValueError(
+                "The vendored BEATs preprocessing is defined for 16 kHz input. "
+                f"Got sample_rate={self.sample_rate}."
+            )
 
-        frame_lengths = self._lengths_to_frame_lengths(
-            waveform_lengths=waveform_lengths,
-            max_frames=features.size(1),
+        padding_mask = torch.arange(
+            waveforms.size(1), device=waveforms.device
+        ).unsqueeze(0) >= waveform_lengths.unsqueeze(1)
+
+        outputs = self.beats(
+            source=waveforms,
+            padding_mask=padding_mask,
+            max_layer=None,
         )
-        padding_mask = lengths_to_padding_mask(frame_lengths, features.size(1))
 
-        hidden_states = []
-        current = features
-
-        for layer in self.layers:
-            current = layer(current, src_key_padding_mask=padding_mask)
-            hidden_states.append(current)
-
-        aggregated = self.aggregator(hidden_states)
-        return EncoderOutput(sequence=aggregated, padding_mask=padding_mask)
+        aggregated_sequence = self._aggregate_hidden_states(outputs.hidden_states)
+        return EncoderOutput(
+            sequence=aggregated_sequence,
+            padding_mask=outputs.attention_mask,
+            hidden_states=outputs.hidden_states,
+        )
