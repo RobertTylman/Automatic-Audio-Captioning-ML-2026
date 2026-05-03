@@ -49,4 +49,16 @@ class WandbValidationSamplesCallback(Callback):
                 ),
             )
 
-        experiment.log({"validation_samples": table}, commit=False)
+        epoch_key = f"validation_samples_epoch_{trainer.current_epoch:03d}"
+        experiment.log(
+            {epoch_key: table},
+            step=trainer.current_epoch,
+            commit=False,
+        )
+
+        logged_epochs = experiment.summary.get("validation_sample_epochs", [])
+        if trainer.current_epoch not in logged_epochs:
+            logged_epochs = list(logged_epochs) + [trainer.current_epoch]
+
+        experiment.summary["validation_sample_epochs"] = logged_epochs
+        experiment.summary["latest_validation_samples_key"] = epoch_key
