@@ -5,6 +5,13 @@
 ![Model-Fusion--Ensemble](https://img.shields.io/badge/Model-Multi--Encoder--Fusion-orange?style=for-the-badge)
 ![Framework-PyTorch](https://img.shields.io/badge/Framework-PyTorch-red?style=for-the-badge)
 
+
+## To Do:
+-add Convnext (audio, not tiny) to Marios pipeline
+-add AST to Marios pipelin
+-everyone download and set up WandDB
+-Full training runthrough with nucleus sampling output
+
 ## 🎙️ Project Overview
 This project focuses on advancing **Automated Audio Captioning (AAC)** by transitioning from single-encoder architectures (like the original CoNeTTE) to a more robust **Multi-Encoder Fusion** system. By combining complementary acoustic representations from multiple state-of-the-art backbones, we achieve a deeper semantic understanding of complex soundscapes.
 
