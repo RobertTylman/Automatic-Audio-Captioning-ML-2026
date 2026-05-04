@@ -158,9 +158,7 @@ cython_debug/
 .vscode/
 
 # Custom for ML
-data/
 datasets/
-models/
 results/
 outputs/
 *.pth
