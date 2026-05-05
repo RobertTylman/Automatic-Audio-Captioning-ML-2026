@@ -66,7 +66,8 @@ def main() -> None:
             mode="min",
         ),
         WandbValidationSamplesCallback(
-            num_samples=config["training"].get("validation_preview_count", 4)
+            num_samples=config["training"].get("validation_preview_count", 4),
+            generation_config=config["training"].get("generation", {}),
         ),
     ]
 

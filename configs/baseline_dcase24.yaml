@@ -100,6 +100,14 @@ training:
   accumulate_grad_batches: 1
   freeze_modules: [beats_encoder]  # beats_encoder, convnext_encoder, fusion, postencoder, decoder
   validation_preview_count: 4
+  generation:
+    do_sample: true
+    temperature: 0.5
+    top_p: 0.95
+    num_return_sequences: 64
+    min_length: 5
+    max_length: 30
+    no_repeat_ngram_size: 3
 
 logging:
   project: automatic-audio-captioning-ml-2026

@@ -102,16 +102,56 @@ class DCASE24BaselineCaptioner(nn.Module):
         )
 
     @torch.no_grad()
+    def score_captions(
+        self,
+        waveforms: torch.Tensor,
+        waveform_lengths: torch.Tensor,
+        sample_rates: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> torch.Tensor:
+        encoder_output = self.encode_audio(waveforms, waveform_lengths, sample_rates)
+        if labels.size(0) != encoder_output.sequence.size(0):
+            if encoder_output.sequence.size(0) != 1:
+                raise ValueError(
+                    "score_captions can only expand a single encoded audio item "
+                    f"to match labels, got audio batch={encoder_output.sequence.size(0)} "
+                    f"and label batch={labels.size(0)}"
+                )
+            encoder_sequence = encoder_output.sequence.expand(labels.size(0), -1, -1)
+            encoder_padding_mask = encoder_output.padding_mask.expand(labels.size(0), -1)
+        else:
+            encoder_sequence = encoder_output.sequence
+            encoder_padding_mask = encoder_output.padding_mask
+
+        return self.decoder.score_labels(
+            encoder_hidden_states=encoder_sequence,
+            encoder_padding_mask=encoder_padding_mask,
+            labels=labels,
+        )
+
+    @torch.no_grad()
     def generate(
         self,
         waveforms: torch.Tensor,
         waveform_lengths: torch.Tensor,
         sample_rates: torch.Tensor,
         max_length: int = 32,
+        min_length: int = 0,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        num_return_sequences: int = 1,
+        no_repeat_ngram_size: int = 0,
     ) -> torch.Tensor:
         encoder_output = self.encode_audio(waveforms, waveform_lengths, sample_rates)
-        return self.decoder.greedy_decode(
+        return self.decoder.decode(
             encoder_hidden_states=encoder_output.sequence,
             encoder_padding_mask=encoder_output.padding_mask,
             max_length=max_length,
+            min_length=min_length,
+            do_sample=do_sample,
+            temperature=temperature,
+            top_p=top_p,
+            num_return_sequences=num_return_sequences,
+            no_repeat_ngram_size=no_repeat_ngram_size,
         )
