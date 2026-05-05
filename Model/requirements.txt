@@ -11,3 +11,5 @@ InstructorEmbedding==1.0.0
 sentence-transformers==2.2.2
 matplotlib==3.6.1
 scikit-image==0.19.3
+timm==0.4.5
+torchaudio

@@ -23,6 +23,7 @@ from info_nce import InfoNCE
 
 from BEATs import BEATs, BEATsConfig
 from ConvNext import ConvNextEncoder
+from AST import ASTEncoder
 from modules import GradMultiply
 from specaug import SpecAug
 
@@ -112,7 +113,7 @@ class FusedEncodersConformerBartSeq2SeqForCaptioning(BartPretrainedModel, Genera
     ):
         super().__init__(config)
         
-        # 1. Primary Encoder: BEATs
+        # 1. Primary Encoder: BEATs (always present)
         if beats_config is not None:
             self.encoder = BEATs(beats_config)
         elif getattr(config, "pretrained_beats_path", None) is not None:
@@ -125,22 +126,74 @@ class FusedEncodersConformerBartSeq2SeqForCaptioning(BartPretrainedModel, Genera
                 "provide either `beats_config` " "or `config.pretrained_beats_path`"
             )
 
-        # 2. Secondary Encoder: ConvNeXt
-        self.convnext = ConvNextEncoder()
+        # 2. Optional secondary encoders
+        self.use_convnext = getattr(config, "use_convnext", True)
+        self.use_ast = getattr(config, "use_ast", False)
 
-        # 3. Aggregation MLP for Fusion
-        beats_dim = self.encoder.embed if hasattr(self.encoder, 'embed') else 768
-        # BEATs output is actually encoder_embed_dim = 768 usually
+        if self.use_convnext:
+            self.convnext = ConvNextEncoder()
+        else:
+            self.convnext = None
+
+        if self.use_ast:
+            ast_kwargs = dict(
+                pretrained_dir=getattr(config, "pretrained_ast_dir", None),
+                imagenet_pretrain=getattr(config, "ast_imagenet_pretrain", True),
+                audioset_pretrain=getattr(config, "ast_audioset_pretrain", False),
+                model_size=getattr(config, "ast_model_size", "base384"),
+                fstride=getattr(config, "ast_fstride", 10),
+                tstride=getattr(config, "ast_tstride", 10),
+                input_fdim=getattr(config, "ast_input_fdim", 128),
+                input_tdim=getattr(config, "ast_input_tdim", 1024),
+            )
+            if hasattr(config, "ast_fbank_mean"):
+                ast_kwargs["fbank_mean"] = config.ast_fbank_mean
+            if hasattr(config, "ast_fbank_std"):
+                ast_kwargs["fbank_std"] = config.ast_fbank_std
+            self.ast = ASTEncoder(**ast_kwargs)
+        else:
+            self.ast = None
+
+        # 3. Fusion strategy
+        self.fusion_strategy = getattr(config, "fusion_strategy", "early")
+        if self.fusion_strategy not in ("early", "late"):
+            raise ValueError(
+                f"fusion_strategy must be 'early' or 'late', got {self.fusion_strategy!r}"
+            )
+
         beats_dim = 768
-        convnext_dim = self.convnext.hidden_size
-        fused_dim = beats_dim + convnext_dim
-        
-        self.fusion_mlp = nn.Sequential(
-            nn.LayerNorm(fused_dim),
-            nn.Linear(fused_dim, 3072),
-            nn.GELU(),
-            nn.Linear(3072, conformer_config.hidden_size)
-        )
+        convnext_dim = self.convnext.hidden_size if self.use_convnext else 0
+        ast_dim = self.ast.hidden_size if self.use_ast else 0
+
+        if self.fusion_strategy == "early":
+            # All available encoders fused BEFORE the conformer
+            fused_dim = beats_dim + convnext_dim + ast_dim
+            self.fusion_mlp = nn.Sequential(
+                nn.LayerNorm(fused_dim),
+                nn.Linear(fused_dim, 3072),
+                nn.GELU(),
+                nn.Linear(3072, conformer_config.hidden_size),
+            )
+            self.late_fusion_mlp = None
+        else:
+            # Late: only BEATs goes to the conformer; fuse with the rest after
+            self.fusion_mlp = nn.Sequential(
+                nn.LayerNorm(beats_dim),
+                nn.Linear(beats_dim, 3072),
+                nn.GELU(),
+                nn.Linear(3072, conformer_config.hidden_size),
+            )
+            late_fused_dim = conformer_config.hidden_size + convnext_dim + ast_dim
+            if late_fused_dim > conformer_config.hidden_size:
+                self.late_fusion_mlp = nn.Sequential(
+                    nn.LayerNorm(late_fused_dim),
+                    nn.Linear(late_fused_dim, 3072),
+                    nn.GELU(),
+                    nn.Linear(3072, conformer_config.hidden_size),
+                )
+            else:
+                # Nothing else to fuse; identity post-conformer
+                self.late_fusion_mlp = None
 
         self.postencoder = Wav2Vec2ConformerEncoder(conformer_config)
 
@@ -178,11 +231,17 @@ class FusedEncodersConformerBartSeq2SeqForCaptioning(BartPretrainedModel, Genera
         else:
             self.enc_dec_proj = None
 
-        # freeze beats and convnext encoders
+        # freeze beats and convnext encoders (existing behavior)
         if getattr(config, "freeze_encoder", True):
             for param in self.encoder.parameters():
                 param.requires_grad_(False)
-            for param in self.convnext.parameters():
+            if self.convnext is not None:
+                for param in self.convnext.parameters():
+                    param.requires_grad_(False)
+
+        # freeze AST independently
+        if self.ast is not None and getattr(config, "freeze_ast", True):
+            for param in self.ast.parameters():
                 param.requires_grad_(False)
 
         # downsample encoder representations
@@ -307,8 +366,20 @@ class FusedEncodersConformerBartSeq2SeqForCaptioning(BartPretrainedModel, Genera
         mlp_logits = self.encoder_embed_mlp(encoder_hidden_states_mean)
         return mlp_logits
 
+    @staticmethod
+    def _align_seq(feats: torch.Tensor, target_len: int) -> torch.Tensor:
+        """Linearly interpolate (B, T, D) features to (B, target_len, D)."""
+        if feats.size(1) == target_len:
+            return feats
+        return F.interpolate(
+            feats.transpose(1, 2),
+            size=target_len,
+            mode="linear",
+            align_corners=False,
+        ).transpose(1, 2)
+
     def encode_audio(self, encoder_input, attention_mask):
-        # 1. Run BEATs
+        # 1. Run BEATs (always)
         encoder_outputs = self.encoder(
             source=encoder_input,
             padding_mask=attention_mask,
@@ -323,34 +394,35 @@ class FusedEncodersConformerBartSeq2SeqForCaptioning(BartPretrainedModel, Genera
         else:
             beats_features = encoder_hidden_states[self.encoder_repr_layer_idx]
 
-        # 2. Run ConvNeXt
-        with torch.no_grad():
-            fbank = self.encoder.preprocess(encoder_input)
-        convnext_features = self.convnext(fbank)
-        
-        # 3. Align Sequence Lengths
-        # convnext_features: [B, T_c, D_c] -> [B, D_c, T_c]
-        convnext_features = convnext_features.transpose(1, 2)
         target_seq_len = beats_features.size(1)
-        
-        # Interpolate to match BEATs sequence length
-        convnext_features = F.interpolate(
-            convnext_features, 
-            size=target_seq_len, 
-            mode='linear', 
-            align_corners=False
-        )
-        # [B, D_c, T_b] -> [B, T_b, D_c]
-        convnext_features = convnext_features.transpose(1, 2)
 
-        # 4. Feature Concatenation
-        # [B, T_b, D_b + D_c]
-        fused_features = torch.cat([beats_features, convnext_features], dim=-1)
-        
-        # 5. Aggregation MLP
-        fused_features = self.fusion_mlp(fused_features)
+        # 2. Per-encoder fbank preprocessing.
+        # ConvNext consumes BEATs's fbank (BEATs-style normalization).
+        # AST has its own normalization (AudioSet stats by default), so it
+        # gets its own fbank computed via ASTEncoder.preprocess.
+        convnext_fbank = None
+        ast_fbank = None
+        if self.use_convnext:
+            with torch.no_grad():
+                convnext_fbank = self.encoder.preprocess(encoder_input)
+        if self.use_ast:
+            with torch.no_grad():
+                ast_fbank = self.ast.preprocess(encoder_input)
 
-        # Continue with downsampling and Conformer as in the original code
+        # 3. Build pre-conformer features depending on fusion strategy
+        if self.fusion_strategy == "early":
+            # All available encoders concat'd at BEATs sequence length
+            feats = [beats_features]
+            if self.use_convnext:
+                feats.append(self._align_seq(self.convnext(convnext_fbank), target_seq_len))
+            if self.use_ast:
+                feats.append(self._align_seq(self.ast(ast_fbank), target_seq_len))
+            fused_features = self.fusion_mlp(torch.cat(feats, dim=-1))
+        else:
+            # Late: only BEATs feeds the conformer
+            fused_features = self.fusion_mlp(beats_features)
+
+        # 4. Optional downsample (existing logic)
         if self.encoder_downsample_rate > 1 and self.downsample_conv is None:
             offset = random.choice(range(self.encoder_downsample_rate))
             fused_features = fused_features[:, offset :: self.encoder_downsample_rate]
@@ -367,11 +439,21 @@ class FusedEncodersConformerBartSeq2SeqForCaptioning(BartPretrainedModel, Genera
         else:
             conformer_attn_mask = None
 
-        # run through conformer
+        # 5. Conformer
         pooled_encoder_hidden_states = self.postencoder(
             fused_features,
             attention_mask=conformer_attn_mask,
         ).last_hidden_state
+
+        # 6. Late fusion: combine the conformer output with whatever else is active
+        if self.fusion_strategy == "late" and self.late_fusion_mlp is not None:
+            post_T = pooled_encoder_hidden_states.size(1)
+            late_feats = [pooled_encoder_hidden_states]
+            if self.use_convnext:
+                late_feats.append(self._align_seq(self.convnext(convnext_fbank), post_T))
+            if self.use_ast:
+                late_feats.append(self._align_seq(self.ast(ast_fbank), post_T))
+            pooled_encoder_hidden_states = self.late_fusion_mlp(torch.cat(late_feats, dim=-1))
 
         if encoder_outputs.attention_mask is not None:
             assert pooled_encoder_hidden_states.size(1) == encoder_outputs.attention_mask.size(1)
