@@ -64,12 +64,9 @@ model:
       predictor_class: 527
 
   convnext_encoder:
-    target_sample_rate: 16000
-    n_mels: 128
-    n_fft: 1024
-    hop_length: 640
-    hidden_size: 384
-    dropout: 0.1
+    pretrained_checkpoint_path: /scratch/yd3245/convnext_tiny_471mAP.pth
+    target_sample_rate: 32000
+    hidden_size: 768
 
   fusion:
     stage: early
