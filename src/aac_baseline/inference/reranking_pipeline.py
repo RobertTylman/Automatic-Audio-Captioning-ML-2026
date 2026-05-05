@@ -7,6 +7,7 @@ from urllib import error, request
 
 import torch
 import torch.nn.functional as F
+import torchaudio.functional as AF
 
 
 STRIP_PUNCT_TABLE = str.maketrans("", "", punctuation)
@@ -106,12 +107,61 @@ def call_openai_chat_completion(
 
 class ClapSimilarityScorer:
     def __init__(self, model_name: str, device: torch.device) -> None:
-        from transformers import ClapModel, ClapProcessor
+        from transformers import (
+            AutoTokenizer,
+            ClapFeatureExtractor,
+            ClapModel,
+            ClapProcessor,
+        )
 
         self.device = device
-        self.processor = ClapProcessor.from_pretrained(model_name)
-        self.model = ClapModel.from_pretrained(model_name).to(device)
+        try:
+            self.processor = ClapProcessor.from_pretrained(
+                model_name,
+                local_files_only=True,
+            )
+        except Exception:
+            try:
+                feature_extractor = ClapFeatureExtractor.from_pretrained(
+                    model_name,
+                    local_files_only=True,
+                )
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model_name,
+                    local_files_only=True,
+                )
+            except Exception:
+                feature_extractor = ClapFeatureExtractor.from_pretrained(model_name)
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+            self.processor = ClapProcessor(
+                feature_extractor=feature_extractor,
+                tokenizer=tokenizer,
+            )
+        try:
+            self.model = ClapModel.from_pretrained(
+                model_name,
+                local_files_only=True,
+                use_safetensors=False,
+            ).to(device)
+        except Exception:
+            self.model = ClapModel.from_pretrained(
+                model_name,
+                use_safetensors=False,
+            ).to(device)
         self.model.eval()
+
+    @staticmethod
+    def _feature_tensor(output) -> torch.Tensor:
+        if isinstance(output, torch.Tensor):
+            return output
+        if hasattr(output, "pooler_output") and output.pooler_output is not None:
+            return output.pooler_output
+        if hasattr(output, "text_embeds") and output.text_embeds is not None:
+            return output.text_embeds
+        if hasattr(output, "audio_embeds") and output.audio_embeds is not None:
+            return output.audio_embeds
+        raise TypeError(f"Unsupported CLAP feature output type: {type(output)!r}")
 
     @torch.no_grad()
     def score(
@@ -123,8 +173,17 @@ class ClapSimilarityScorer:
         if not captions:
             return torch.empty(0, device=self.device)
 
+        target_sample_rate = getattr(self.processor.feature_extractor, "sampling_rate", sample_rate)
+        if sample_rate != target_sample_rate:
+            waveform = AF.resample(
+                waveform.detach().cpu(),
+                orig_freq=sample_rate,
+                new_freq=target_sample_rate,
+            )
+            sample_rate = target_sample_rate
+
         audio_inputs = self.processor(
-            audios=waveform.detach().cpu().numpy(),
+            audio=waveform.detach().cpu().numpy(),
             sampling_rate=sample_rate,
             return_tensors="pt",
         )
@@ -137,8 +196,12 @@ class ClapSimilarityScorer:
         audio_inputs = {key: value.to(self.device) for key, value in audio_inputs.items()}
         text_inputs = {key: value.to(self.device) for key, value in text_inputs.items()}
 
-        audio_features = self.model.get_audio_features(**audio_inputs)
-        text_features = self.model.get_text_features(**text_inputs)
+        audio_features = self._feature_tensor(
+            self.model.get_audio_features(**audio_inputs)
+        )
+        text_features = self._feature_tensor(
+            self.model.get_text_features(**text_inputs)
+        )
         audio_features = F.normalize(audio_features, dim=-1)
         text_features = F.normalize(text_features, dim=-1)
         return torch.matmul(text_features, audio_features.squeeze(0)).detach().cpu()
@@ -155,7 +218,9 @@ class ClapSimilarityScorer:
             truncation=True,
         )
         text_inputs = {key: value.to(self.device) for key, value in text_inputs.items()}
-        text_features = self.model.get_text_features(**text_inputs)
+        text_features = self._feature_tensor(
+            self.model.get_text_features(**text_inputs)
+        )
         return F.normalize(text_features, dim=-1).detach().cpu()
 
 
