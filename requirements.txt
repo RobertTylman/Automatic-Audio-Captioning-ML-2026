@@ -2,6 +2,7 @@ torch>=2.0.0
 torchaudio
 transformers
 lightning
+timm==0.4.5
 numpy
 pandas
 scipy
