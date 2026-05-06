@@ -17,6 +17,7 @@ class AudioCaptioningCollator:
     def __init__(self, tokenizer_name: str, max_caption_tokens: int) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True)
         self.max_caption_tokens = max_caption_tokens
+        self._logged_batch = False
 
     def __call__(self, batch: List[Dict]) -> Dict:
         max_audio_len = max(example["num_samples"] for example in batch)
@@ -41,6 +42,15 @@ class AudioCaptioningCollator:
 
         labels = tokenized["input_ids"].clone()
         labels[labels == self.tokenizer.pad_token_id] = -100
+
+        if not self._logged_batch:
+            print(
+                f"[data] first collated batch size={len(batch)} "
+                f"max_audio_len={max_audio_len} sample_rates={sorted(set(sample_rates))} "
+                f"token_shape={tuple(labels.shape)}",
+                flush=True,
+            )
+            self._logged_batch = True
 
         return {
             "waveforms": torch.stack(padded_waveforms, dim=0),

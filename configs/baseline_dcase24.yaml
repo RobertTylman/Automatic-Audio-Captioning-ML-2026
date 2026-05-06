@@ -5,11 +5,10 @@ data:
   train_caption_csv: /scratch/rht9410/clotho/clotho_captions_development.csv
   val_audio_dir: /scratch/rht9410/clotho/validation
   val_caption_csv: /scratch/rht9410/clotho/clotho_captions_validation.csv
-  sample_rate: 16000
   train_caption_mode: random
   val_caption_mode: first
   batch_size: 16
-  num_workers: 3
+  num_workers: 0
   max_caption_tokens: 32
   tokenizer_name: facebook/bart-base
 
@@ -64,12 +63,11 @@ model:
       predictor_class: 527
 
   convnext_encoder:
-    target_sample_rate: 16000
-    n_mels: 128
-    n_fft: 1024
-    hop_length: 640
-    hidden_size: 384
-    dropout: 0.1
+    pretrained_checkpoint_path: /scratch/rht9410/aac_checkpoints/convnext_tiny_471mAP.pth
+    target_sample_rate: 32000
+    hidden_size: 768
+    hop_size: 320
+    after_stem_dim: [252, 56]
 
   fusion:
     stage: early
@@ -98,7 +96,7 @@ training:
   val_check_interval: 1.0
   limit_val_batches: 1.0
   accumulate_grad_batches: 1
-  freeze_modules: [beats_encoder]  # beats_encoder, convnext_encoder, fusion, postencoder, decoder
+  freeze_modules: [beats_encoder, convnext_encoder]  # beats_encoder, convnext_encoder, fusion, postencoder, decoder
   validation_preview_count: 4
 
 logging:

@@ -170,3 +170,7 @@ wandb/
 runs/
 logs/
 tensorboard/
+
+Model/
+test_scripts/
+scripts/test_panns_convnext.py

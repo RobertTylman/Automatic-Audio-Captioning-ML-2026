@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from .common import EncoderOutput
 from .decoder import BartCaptionDecoder, DecoderOutput
-from .encoders import BeatsEncoderAdapter, ConvNextDummyEncoder
+from .encoders import BeatsEncoderAdapter, ConvNextEncoderAdapter
 from .fusion import build_fusion_module
 from .postencoder import ConformerPostEncoder
 
@@ -28,7 +28,7 @@ class DCASE24BaselineCaptioner(nn.Module):
         self.beats_encoder = BeatsEncoderAdapter(config["beats_encoder"])
         #this is where the rest of the encoders should be built, I have a dummy encoder for ConvNext but we should replace it with the 
         #correct one, and also add the AST
-        self.convnext_encoder = ConvNextDummyEncoder(config["convnext_encoder"])
+        self.convnext_encoder = ConvNextEncoderAdapter(config["convnext_encoder"])
         #the following module is how we will fuse the encoder hidden states, 
         #right now it only supports fusing the beats and convnext dummy but we should also extend it to 
         #take as arguments the other encoders that we will implement

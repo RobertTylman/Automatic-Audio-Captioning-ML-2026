@@ -1,4 +1,4 @@
 from .beats_adapter import BeatsEncoderAdapter
-from .convnext_dummy import ConvNextDummyEncoder
+from .convnext_panns import ConvNextEncoderAdapter
 
-__all__ = ["BeatsEncoderAdapter", "ConvNextDummyEncoder"]
+__all__ = ["BeatsEncoderAdapter", "ConvNextEncoderAdapter"]
