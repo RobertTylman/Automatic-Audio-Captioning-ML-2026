@@ -5,7 +5,7 @@ import os
 # Add src to path
 sys.path.append(os.path.join(os.getcwd(), "src"))
 
-from aac_baseline.models.encoders.convnext_dummy import ConvNextEncoderAdapter
+from aac_baseline.models.encoders.convnext_panns import ConvNextEncoderAdapter
 
 def test_loading():
     print("--- Testing ConvNextEncoderAdapter Loading ---")
@@ -13,7 +13,9 @@ def test_loading():
     config = {
         "pretrained_checkpoint_path": "/Users/jonathandavid/NYU/Spring 2026/Machine Listening/FinalProject/ConvNextAudioCheckpoints/convnext_tiny_471mAP.pth",
         "target_sample_rate": 32000,
-        "hidden_size": 768
+        "hidden_size": 768,
+        "hop_size": 320,
+        "after_stem_dim": [252, 56],
     }
     
     try:
