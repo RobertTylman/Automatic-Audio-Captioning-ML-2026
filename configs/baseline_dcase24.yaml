@@ -71,6 +71,22 @@ model:
     hidden_size: 384
     dropout: 0.1
 
+  # AST is opt-in. Comment out this block to disable AST entirely; the
+  # captioner only builds it when the `ast_encoder` key is present.
+  ast_encoder:
+    target_sample_rate: 16000
+    pretrained_dir: /scratch/rht9410/clotho/ast_pretrained
+    imagenet_pretrain: true
+    audioset_pretrain: false
+    model_size: base384
+    fstride: 10
+    tstride: 10
+    input_fdim: 128
+    input_tdim: 1024
+    # AudioSet defaults; recompute on Clotho for best results.
+    fbank_mean: -4.2677393
+    fbank_std: 4.5689974
+
   fusion:
     stage: early
     mode: feature
