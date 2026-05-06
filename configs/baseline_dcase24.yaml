@@ -77,7 +77,7 @@ model:
     pretrained_dir: /scratch/rht9410/clotho/ast_pretrained
     pretrained_checkpoint_path:
     strict_checkpoint_load: false
-    imagenet_pretrain: false
+    imagenet_pretrain: true
     audioset_pretrain: true
 
     # --- trunk geometry (changing these resizes AST's positional embedding) ---
@@ -128,7 +128,7 @@ training:
   val_check_interval: 1.0
   limit_val_batches: 1.0
   accumulate_grad_batches: 1
-  freeze_modules: [beats_encoder, convnext_encoder]  # beats_encoder, convnext_encoder, ast_encoder, fusion, postencoder, decoder
+  freeze_modules: [beats_encoder, convnext_encoder, ast_encoder]  # beats_encoder, convnext_encoder, ast_encoder, fusion, postencoder, decoder
   validation_preview_count: 4
 
 logging:
