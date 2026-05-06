@@ -1,5 +1,6 @@
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import lightning as L
@@ -39,24 +40,82 @@ def build_logger(config: dict):
     return TensorBoardLogger(save_dir=save_dir, name=logging_cfg["run_name"])
 
 
+def log_run_configuration(logger, config: dict, config_path: Path) -> None:
+    """
+    Record the run configuration in the experiment logger.
+
+    For W&B we do two things:
+    - store the parsed config as structured run config for filtering/comparison
+    - upload the exact YAML file so the original experiment definition is preserved
+    """
+
+    if logger is None:
+        return
+
+    logger.log_hyperparams(config)
+
+    if not isinstance(logger, WandbLogger):
+        return
+
+    experiment = logger.experiment
+    experiment.config.update(
+        {
+            **config,
+            "config_path": str(config_path),
+        },
+        allow_val_change=True,
+    )
+    experiment.summary["config_path"] = str(config_path)
+
+    if hasattr(experiment, "save"):
+        experiment.save(str(config_path), policy="now")
+
+
+def log_startup_step(start_time: float, message: str) -> None:
+    elapsed = time.perf_counter() - start_time
+    print(f"[startup +{elapsed:7.2f}s] {message}", flush=True)
+
+
 def main() -> None:
+    start_time = time.perf_counter()
+    log_startup_step(start_time, "parsing command line arguments")
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
     args = parser.parse_args()
 
+    log_startup_step(start_time, "loading YAML config")
     config_path = Path(args.config).resolve()
     config = load_config(config_path)
+    log_startup_step(start_time, f"loaded config from {config_path}")
 
+    log_startup_step(start_time, "seeding libraries")
     L.seed_everything(config.get("seed", 42), workers=True)
+    log_startup_step(start_time, "seed setup complete")
 
+    log_startup_step(start_time, "building datamodule")
     datamodule = ClothoDataModule(config["data"])
+    log_startup_step(start_time, "datamodule created")
+
+    log_startup_step(start_time, "building captioner model")
     model = DCASE24BaselineCaptioner(config["model"])
+    log_startup_step(start_time, "captioner model created")
+
+    log_startup_step(start_time, "wrapping model in LightningModule")
     lightning_module = AudioCaptioningLightningModule(
         model=model,
         training_config=config["training"],
     )
+    log_startup_step(start_time, "LightningModule created")
 
+    log_startup_step(start_time, "initializing experiment logger")
     logger = build_logger(config)
+    log_startup_step(start_time, f"logger ready: {type(logger).__name__}")
+
+    log_startup_step(start_time, "logging run configuration")
+    log_run_configuration(logger, config, config_path)
+    log_startup_step(start_time, "run configuration logged")
+
+    log_startup_step(start_time, "building callbacks")
     callbacks = [
         ModelCheckpoint(
             dirpath=Path(config["logging"]["save_dir"]) / "checkpoints",
@@ -69,7 +128,9 @@ def main() -> None:
             num_samples=config["training"].get("validation_preview_count", 4)
         ),
     ]
+    log_startup_step(start_time, "callbacks created")
 
+    log_startup_step(start_time, "creating Lightning trainer")
     trainer = L.Trainer(
         accelerator=config["training"].get("accelerator", "auto"),
         devices=config["training"].get("devices", "auto"),
@@ -84,8 +145,11 @@ def main() -> None:
         logger=logger,
         callbacks=callbacks,
     )
+    log_startup_step(start_time, "trainer created")
 
+    log_startup_step(start_time, "starting trainer.fit()")
     trainer.fit(lightning_module, datamodule=datamodule)
+    log_startup_step(start_time, "trainer.fit() returned")
 
 
 if __name__ == "__main__":

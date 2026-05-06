@@ -63,7 +63,7 @@ model:
       predictor_class: 527
 
   convnext_encoder:
-    pretrained_checkpoint_path: /scratch/yd3245/convnext_tiny_471mAP.pth
+    pretrained_checkpoint_path: /scratch/rht9410/aac_checkpoints/convnext_tiny_471mAP.pth
     target_sample_rate: 32000
     hidden_size: 768
     hop_size: 320
@@ -96,7 +96,7 @@ training:
   val_check_interval: 1.0
   limit_val_batches: 1.0
   accumulate_grad_batches: 1
-  freeze_modules: [beats_encoder]  # beats_encoder, convnext_encoder, fusion, postencoder, decoder
+  freeze_modules: [beats_encoder, convnext_encoder]  # beats_encoder, convnext_encoder, fusion, postencoder, decoder
   validation_preview_count: 4
 
 logging:
