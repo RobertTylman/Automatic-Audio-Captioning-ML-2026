@@ -109,18 +109,14 @@ cd Automatic-Audio-Captioning-ML-2026
 
 # Install core dependencies
 pip install -r requirements.txt
-
-# Install evaluation tools
-cd Model/caption_evaluation_tools/coco_caption
-bash get_stanford_models.sh
 ```
 
-### 2. Running Inference
-To run the full sampling and reranking pipeline:
+### 2. Running Training
+The active training pipeline lives under `src/aac_baseline/` and is driven by a YAML config:
 ```bash
-cd Model
-bash run_sampling_reranking.sh
+python scripts/train.py --config configs/baseline_dcase24.yaml
 ```
+Edit `configs/baseline_dcase24.yaml` to point `data.train_audio_dir` / `data.train_caption_csv` (and the val equivalents) at your Clotho copy. Encoders other than BEATs are opt-in by config-block presence — comment out `model.convnext_encoder` or `model.ast_encoder` to disable them.
 
 ---
 
