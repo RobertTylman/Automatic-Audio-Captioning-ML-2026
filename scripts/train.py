@@ -32,6 +32,7 @@ def build_logger(config: dict):
     if logging_cfg.get("use_wandb", True):
         return WandbLogger(
             project=logging_cfg["project"],
+            entity=logging_cfg.get("entity"),
             name=logging_cfg["run_name"],
             save_dir=save_dir,
             log_model=False,

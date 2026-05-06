@@ -132,7 +132,8 @@ training:
   validation_preview_count: 4
 
 logging:
+  entity: yd3245-new-york-university
   project: automatic-audio-captioning-ml-2026
-  run_name: dcase24-baseline-scaffold
-  save_dir: outputs
+  run_name: all_together
+  save_dir: /scratch/rht9410/clotho/run_outputs/all_together
   use_wandb: true
