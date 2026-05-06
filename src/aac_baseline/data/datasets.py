@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 from typing import Dict, List
 
 import pandas as pd
@@ -30,6 +31,7 @@ class ClothoCaptionDataset(Dataset):
         self.audio_dir = Path(audio_dir)
         self.caption_csv = Path(caption_csv)
         self.caption_mode = caption_mode
+        self._logged_example = False
 
         dataframe = pd.read_csv(self.caption_csv)
         self.examples: List[Dict] = []
@@ -47,6 +49,12 @@ class ClothoCaptionDataset(Dataset):
                     self.examples.append({**sample, "caption_text": caption})
             else:
                 self.examples.append(sample)
+
+        print(
+            f"[data] built ClothoCaptionDataset mode={self.caption_mode} "
+            f"csv={self.caption_csv} examples={len(self.examples)}",
+            flush=True,
+        )
 
     def __len__(self) -> int:
         return len(self.examples)
@@ -76,7 +84,21 @@ class ClothoCaptionDataset(Dataset):
     def __getitem__(self, index: int) -> Dict:
         example = self.examples[index]
         caption_text = self._select_caption(example)
+        load_start = time.perf_counter()
+        if not self._logged_example:
+            print(
+                f"[data] loading first audio example path={example['audio_path']}",
+                flush=True,
+            )
         waveform, sample_rate = self._load_audio(example["audio_path"])
+        if not self._logged_example:
+            elapsed = time.perf_counter() - load_start
+            print(
+                f"[data] first audio loaded samples={waveform.numel()} "
+                f"sample_rate={sample_rate} took={elapsed:.2f}s",
+                flush=True,
+            )
+            self._logged_example = True
 
         return {
             "sample_id": example["file_name"],

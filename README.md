@@ -5,6 +5,14 @@
 ![Model-Fusion--Ensemble](https://img.shields.io/badge/Model-Multi--Encoder--Fusion-orange?style=for-the-badge)
 ![Framework-PyTorch](https://img.shields.io/badge/Framework-PyTorch-red?style=for-the-badge)
 
+
+## To Do:
+- add Convnext (audio, not tiny) to Marios pipeline
+- add AST to Marios pipelin
+- everyone download and set up WandDB
+- Full training runthrough with nucleus sampling output
+- Determine best performing model (ideal fusion combination of AST, ConvNext, BEATS)
+
 ## 🎙️ Project Overview
 This project focuses on advancing **Automated Audio Captioning (AAC)** by transitioning from single-encoder architectures (like the original CoNeTTE) to a more robust **Multi-Encoder Fusion** system. By combining complementary acoustic representations from multiple state-of-the-art backbones, we achieve a deeper semantic understanding of complex soundscapes.
 
@@ -109,14 +117,18 @@ cd Automatic-Audio-Captioning-ML-2026
 
 # Install core dependencies
 pip install -r requirements.txt
+
+# Install evaluation tools
+cd Model/caption_evaluation_tools/coco_caption
+bash get_stanford_models.sh
 ```
 
-### 2. Running Training
-The active training pipeline lives under `src/aac_baseline/` and is driven by a YAML config:
+### 2. Running Inference
+To run the full sampling and reranking pipeline:
 ```bash
-python scripts/train.py --config configs/baseline_dcase24.yaml
+cd Model
+bash run_sampling_reranking.sh
 ```
-Edit `configs/baseline_dcase24.yaml` to point `data.train_audio_dir` / `data.train_caption_csv` (and the val equivalents) at your Clotho copy. Encoders other than BEATs are opt-in by config-block presence — comment out `model.convnext_encoder` or `model.ast_encoder` to disable them.
 
 ---
 

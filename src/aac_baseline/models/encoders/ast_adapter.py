@@ -71,9 +71,27 @@ class ASTEncoderAdapter(AudioEncoderBase):
             verbose=config.get("verbose", False),
             pretrained_dir=config.get("pretrained_dir"),
         )
+        checkpoint_path = config.get("pretrained_checkpoint_path")
+        self.checkpoint_load_result = None
+        if checkpoint_path:
+            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+            state_dict = checkpoint.get("model", checkpoint.get("state_dict", checkpoint))
+            if any(key.startswith("module.") for key in state_dict.keys()):
+                state_dict = {
+                    key.removeprefix("module."): value
+                    for key, value in state_dict.items()
+                }
+            self.checkpoint_load_result = self.ast.load_state_dict(
+                state_dict,
+                strict=config.get("strict_checkpoint_load", False),
+            )
         self.hidden_size = self.ast.original_embedding_dim
 
-    def _waveforms_to_fbank(self, waveforms: torch.Tensor) -> torch.Tensor:
+    def _waveforms_to_fbank(
+        self,
+        waveforms: torch.Tensor,
+        waveform_lengths: torch.Tensor,
+    ) -> torch.Tensor:
         """Compute AST-style log-mel fbank with dataset z-normalization.
 
         Differs from BEATs in three ways: no 2**15 waveform scaling, kaldi
@@ -83,8 +101,8 @@ class ASTEncoderAdapter(AudioEncoderBase):
         positional embedding lines up.
         """
         fbanks = []
-        for waveform in waveforms:
-            waveform = waveform.unsqueeze(0)
+        for waveform, waveform_length in zip(waveforms, waveform_lengths):
+            waveform = waveform[: int(waveform_length.item())].unsqueeze(0)
             fbank = ta_kaldi.fbank(
                 waveform,
                 htk_compat=self.kaldi_htk_compat,
@@ -96,16 +114,15 @@ class ASTEncoderAdapter(AudioEncoderBase):
                 frame_shift=self.frame_shift_ms,
                 frame_length=self.frame_length_ms,
             )
+            n_frames = fbank.shape[0]
+            if n_frames < self.input_tdim:
+                fbank = nn.functional.pad(
+                    fbank, (0, 0, 0, self.input_tdim - n_frames)
+                )
+            elif n_frames > self.input_tdim:
+                fbank = fbank[: self.input_tdim, :]
             fbanks.append(fbank)
         fbank = torch.stack(fbanks, dim=0)
-
-        n_frames = fbank.shape[1]
-        if n_frames < self.input_tdim:
-            fbank = nn.functional.pad(
-                fbank, (0, 0, 0, self.input_tdim - n_frames)
-            )
-        elif n_frames > self.input_tdim:
-            fbank = fbank[:, : self.input_tdim, :]
 
         fbank = (fbank - self.fbank_mean) / (self.fbank_std * self.fbank_std_multiplier)
         return fbank
@@ -116,14 +133,14 @@ class ASTEncoderAdapter(AudioEncoderBase):
         waveform_lengths: torch.Tensor,
         sample_rates: torch.Tensor,
     ) -> EncoderOutput:
-        waveforms, _ = resample_batch_waveforms(
+        waveforms, resampled_lengths = resample_batch_waveforms(
             waveforms=waveforms,
             waveform_lengths=waveform_lengths,
             sample_rates=sample_rates,
             target_sample_rate=self.sample_rate,
         )
 
-        fbank = self._waveforms_to_fbank(waveforms).to(waveforms.device)
+        fbank = self._waveforms_to_fbank(waveforms, resampled_lengths).to(waveforms.device)
         sequence = self.ast.extract_features(fbank)
 
         padding_mask = torch.zeros(

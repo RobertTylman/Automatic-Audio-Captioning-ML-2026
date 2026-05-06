@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from .common import EncoderOutput
 from .decoder import BartCaptionDecoder, DecoderOutput
-from .encoders import ASTEncoderAdapter, BeatsEncoderAdapter, ConvNextDummyEncoder
+from .encoders import ASTEncoderAdapter, BeatsEncoderAdapter, ConvNextEncoderAdapter
 from .fusion import build_fusion_module
 from .postencoder import ConformerPostEncoder
 
@@ -33,7 +33,7 @@ class DCASE24BaselineCaptioner(nn.Module):
 
         # 2. Optional secondary encoders, opt-in via config presence
         self.convnext_encoder = (
-            ConvNextDummyEncoder(config["convnext_encoder"])
+            ConvNextEncoderAdapter(config["convnext_encoder"])
             if "convnext_encoder" in config
             else None
         )

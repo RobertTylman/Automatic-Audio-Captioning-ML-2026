@@ -15,6 +15,7 @@ class ClothoDataModule(L.LightningDataModule):
         )
 
     def setup(self, stage: str | None = None) -> None:
+        print(f"[data] datamodule.setup(stage={stage})", flush=True)
         self.train_dataset = ClothoCaptionDataset(
             audio_dir=self.data_config["train_audio_dir"],
             caption_csv=self.data_config["train_caption_csv"],
@@ -25,8 +26,17 @@ class ClothoDataModule(L.LightningDataModule):
             caption_csv=self.data_config["val_caption_csv"],
             caption_mode=self.data_config.get("val_caption_mode", "first"),
         )
+        print(
+            f"[data] setup complete train={len(self.train_dataset)} val={len(self.val_dataset)}",
+            flush=True,
+        )
 
     def train_dataloader(self) -> DataLoader:
+        print(
+            f"[data] building train dataloader batch_size={self.data_config['batch_size']} "
+            f"num_workers={self.data_config['num_workers']} pin_memory=True",
+            flush=True,
+        )
         return DataLoader(
             self.train_dataset,
             batch_size=self.data_config["batch_size"],
@@ -37,6 +47,11 @@ class ClothoDataModule(L.LightningDataModule):
         )
 
     def val_dataloader(self) -> DataLoader:
+        print(
+            f"[data] building val dataloader batch_size={self.data_config['batch_size']} "
+            f"num_workers={self.data_config['num_workers']} pin_memory=True",
+            flush=True,
+        )
         return DataLoader(
             self.val_dataset,
             batch_size=self.data_config["batch_size"],
