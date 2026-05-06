@@ -52,7 +52,7 @@ class WandbValidationSamplesCallback(Callback):
         epoch_key = f"validation_samples_epoch_{trainer.current_epoch:03d}"
         experiment.log(
             {epoch_key: table},
-            step=trainer.current_epoch,
+            step=trainer.global_step,
             commit=False,
         )
 
