@@ -38,10 +38,26 @@ class ASTEncoderAdapter(AudioEncoderBase):
                 f"Got target_sample_rate={self.sample_rate}."
             )
 
+        # Trunk geometry — these change the patch grid, so AST's positional
+        # embedding is sized off them at construction time.
         self.input_fdim = config.get("input_fdim", 128)
         self.input_tdim = config.get("input_tdim", 1024)
+
+        # Z-normalization stats (recompute these on your dataset for best
+        # cross-modality transfer; defaults are AudioSet's).
         self.fbank_mean = config.get("fbank_mean", _AST_AUDIOSET_FBANK_MEAN)
         self.fbank_std = config.get("fbank_std", _AST_AUDIOSET_FBANK_STD)
+        self.fbank_std_multiplier = config.get("fbank_std_multiplier", 2.0)
+
+        # Kaldi fbank knobs. Defaults match upstream AST's dataloader; the
+        # AST pretrained weights are calibrated to these specific values, so
+        # change with caution.
+        self.frame_shift_ms = config.get("frame_shift_ms", 10)
+        self.frame_length_ms = config.get("frame_length_ms", 25)
+        self.kaldi_htk_compat = config.get("kaldi_htk_compat", True)
+        self.kaldi_window_type = config.get("kaldi_window_type", "hanning")
+        self.kaldi_use_energy = config.get("kaldi_use_energy", False)
+        self.kaldi_dither = config.get("kaldi_dither", 0.0)
 
         self.ast = ASTModel(
             label_dim=config.get("label_dim", 527),
@@ -61,22 +77,24 @@ class ASTEncoderAdapter(AudioEncoderBase):
         """Compute AST-style log-mel fbank with dataset z-normalization.
 
         Differs from BEATs in three ways: no 2**15 waveform scaling, kaldi
-        ``htk_compat=True``/``hanning``/``dither=0``, and
-        ``(fbank - mean) / (2 * std)``. Pads (zero) or truncates the time
-        axis to ``input_tdim`` so AST's positional embedding lines up.
+        AST-canonical options (defaults: ``htk_compat=True``/``hanning``/
+        ``dither=0``), and ``(fbank - mean) / (std * fbank_std_multiplier)``.
+        Pads (zero) or truncates the time axis to ``input_tdim`` so AST's
+        positional embedding lines up.
         """
         fbanks = []
         for waveform in waveforms:
             waveform = waveform.unsqueeze(0)
             fbank = ta_kaldi.fbank(
                 waveform,
-                htk_compat=True,
-                sample_frequency=16000,
-                use_energy=False,
-                window_type="hanning",
+                htk_compat=self.kaldi_htk_compat,
+                sample_frequency=self.sample_rate,
+                use_energy=self.kaldi_use_energy,
+                window_type=self.kaldi_window_type,
                 num_mel_bins=self.input_fdim,
-                dither=0.0,
-                frame_shift=10,
+                dither=self.kaldi_dither,
+                frame_shift=self.frame_shift_ms,
+                frame_length=self.frame_length_ms,
             )
             fbanks.append(fbank)
         fbank = torch.stack(fbanks, dim=0)
@@ -89,7 +107,7 @@ class ASTEncoderAdapter(AudioEncoderBase):
         elif n_frames > self.input_tdim:
             fbank = fbank[:, : self.input_tdim, :]
 
-        fbank = (fbank - self.fbank_mean) / (self.fbank_std * 2)
+        fbank = (fbank - self.fbank_mean) / (self.fbank_std * self.fbank_std_multiplier)
         return fbank
 
     def forward(

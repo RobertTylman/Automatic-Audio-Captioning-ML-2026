@@ -74,18 +74,32 @@ model:
   # AST is opt-in. Comment out this block to disable AST entirely; the
   # captioner only builds it when the `ast_encoder` key is present.
   ast_encoder:
+    # --- environment / pretrained weight loading ---
     target_sample_rate: 16000
     pretrained_dir: /scratch/rht9410/clotho/ast_pretrained
     imagenet_pretrain: true
     audioset_pretrain: false
-    model_size: base384
-    fstride: 10
-    tstride: 10
-    input_fdim: 128
-    input_tdim: 1024
-    # AudioSet defaults; recompute on Clotho for best results.
+
+    # --- trunk geometry (changing these resizes AST's positional embedding) ---
+    model_size: base384       # one of: tiny224, small224, base224, base384
+    fstride: 10               # patch stride along the frequency axis
+    tstride: 10               # patch stride along the time axis
+    input_fdim: 128           # number of mel bins
+    input_tdim: 1024          # number of time frames the trunk consumes (clip is padded/cropped to this)
+
+    # --- z-normalization (AudioSet defaults; recompute on Clotho for best results) ---
     fbank_mean: -4.2677393
     fbank_std: 4.5689974
+    fbank_std_multiplier: 2.0   # divisor is (std * multiplier); upstream AST uses 2.0
+
+    # --- kaldi fbank knobs (AST-canonical defaults; AST's pretrained weights ---
+    # --- are calibrated to these, so change with caution) ---
+    frame_shift_ms: 10        # hop size in ms
+    frame_length_ms: 25       # window size in ms
+    kaldi_htk_compat: true
+    kaldi_window_type: hanning
+    kaldi_use_energy: false
+    kaldi_dither: 0.0
 
   fusion:
     stage: early
