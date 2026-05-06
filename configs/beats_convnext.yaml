@@ -102,6 +102,6 @@ training:
 logging:
   entity: yd3245-new-york-university
   project: automatic-audio-captioning-ml-2026
-  run_name: beats_convnext
-  save_dir: /scratch/rht9410/clotho/run_outputs/beats_convnext
+  run_name: beats_convnext_correct_fusing
+  save_dir: /scratch/rht9410/clotho/run_outputs/beats_convnext_correct_fusing
   use_wandb: true

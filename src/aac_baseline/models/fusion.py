@@ -30,12 +30,26 @@ class FeatureFusion(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     @staticmethod
-    def _interpolate_to_length(sequence: torch.Tensor, target_length: int) -> torch.Tensor:
-        if sequence.size(1) == target_length:
-            return sequence
-        sequence = sequence.transpose(1, 2)
-        sequence = F.interpolate(sequence, size=target_length, mode="linear", align_corners=False)
-        return sequence.transpose(1, 2)
+    def _interpolate_valid_prefix(sequence: torch.Tensor, valid_length: int, target_length: int) -> torch.Tensor:
+        """
+        Resample only the real prefix of a sequence.
+
+        This keeps padded tail embeddings from influencing the interpolation.
+        The caller is responsible for re-padding after alignment.
+        """
+        if target_length <= 0:
+            return sequence.new_zeros((0, sequence.size(-1)))
+
+        if valid_length <= 0:
+            return sequence.new_zeros((target_length, sequence.size(-1)))
+
+        trimmed = sequence[:valid_length]
+        if valid_length == target_length:
+            return trimmed
+
+        trimmed = trimmed.transpose(0, 1).unsqueeze(0)
+        resized = F.interpolate(trimmed, size=target_length, mode="linear", align_corners=False)
+        return resized.squeeze(0).transpose(0, 1)
 
     def forward(self, *branches: EncoderOutput) -> EncoderOutput:
         if len(branches) != len(self.input_dims):
@@ -45,20 +59,41 @@ class FeatureFusion(nn.Module):
             )
 
         anchor = branches[0]
-        target_length = anchor.sequence.size(1)
+        anchor_valid_lengths = (~anchor.padding_mask).sum(dim=1)
+        max_target_length = anchor.sequence.size(1)
+        total_dim = sum(self.input_dims)
 
-        aligned_sequences = [anchor.sequence]
-        for branch in branches[1:]:
-            aligned_sequences.append(
-                self._interpolate_to_length(branch.sequence, target_length)
-            )
+        fused_inputs = anchor.sequence.new_zeros(
+            anchor.sequence.size(0), max_target_length, total_dim
+        )
 
-        fused = torch.cat(aligned_sequences, dim=-1)
+        for batch_index in range(anchor.sequence.size(0)):
+            target_length = int(anchor_valid_lengths[batch_index].item())
+            if target_length <= 0:
+                continue
+
+            aligned_sequences = [
+                anchor.sequence[batch_index, :target_length]
+            ]
+            for branch in branches[1:]:
+                valid_length = int((~branch.padding_mask[batch_index]).sum().item())
+                aligned_sequences.append(
+                    self._interpolate_valid_prefix(
+                        branch.sequence[batch_index],
+                        valid_length=valid_length,
+                        target_length=target_length,
+                    )
+                )
+
+            fused_inputs[batch_index, :target_length] = torch.cat(aligned_sequences, dim=-1)
+
+        fused = fused_inputs
         fused = self.norm(fused)
         fused = self.fc1(fused)
         fused = self.act(fused)
         fused = self.dropout(fused)
         fused = self.fc2(fused)
+        fused = fused.masked_fill(anchor.padding_mask.unsqueeze(-1), 0.0)
         return EncoderOutput(sequence=fused, padding_mask=anchor.padding_mask)
 
 

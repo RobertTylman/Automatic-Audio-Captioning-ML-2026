@@ -118,7 +118,7 @@ model:
 training:
   learning_rate: 5.0e-5
   weight_decay: 0.01
-  max_epochs: 10
+  max_epochs: 50
   grad_clip_val: 1.0
   precision: 32-true
   accelerator: auto
@@ -134,6 +134,6 @@ training:
 logging:
   entity: yd3245-new-york-university
   project: automatic-audio-captioning-ml-2026
-  run_name: all_together
-  save_dir: /scratch/rht9410/clotho/run_outputs/all_together
+  run_name: all_together_correct_fusing
+  save_dir: /scratch/rht9410/clotho/run_outputs/all_together_correct_fusing
   use_wandb: true
