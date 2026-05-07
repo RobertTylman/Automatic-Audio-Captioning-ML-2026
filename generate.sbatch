@@ -43,20 +43,20 @@ export NUMEXPR_NUM_THREADS=1
 export TF_CPP_MIN_LOG_LEVEL=2
 export PYTHONNOUSERSITE=1
 
-cd \${REPO_ROOT}
+cd ${REPO_ROOT}
 
 python -u scripts/evaluation/generate_outputs.py \
-  --config \${CONFIG_PATH} \
-  --checkpoint \${CHECKPOINT_PATH} \
-  --output-dir \${OUTPUT_DIR} \
-  --audio-dir \${AUDIO_DIR} \
-  --caption-csv \${CAPTION_CSV} \
+  --config ${CONFIG_PATH} \
+  --checkpoint ${CHECKPOINT_PATH} \
+  --output-dir ${OUTPUT_DIR} \
+  --audio-dir ${AUDIO_DIR} \
+  --caption-csv ${CAPTION_CSV} \
   --mode greedy
 
 echo "Generation complete. Starting scoring..."
 
 python -u scripts/evaluation/score_outputs.py \
-  --predictions-csv \${OUTPUT_DIR}/greedy_output.csv \
-  --references-csv \${CAPTION_CSV} \
-  --output-dir \${OUTPUT_DIR}/scores
+  --predictions-csv ${OUTPUT_DIR}/greedy_output.csv \
+  --references-csv ${CAPTION_CSV} \
+  --output-dir ${OUTPUT_DIR}/scores
 "

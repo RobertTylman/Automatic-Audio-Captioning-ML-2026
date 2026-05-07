@@ -35,11 +35,11 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 export TF_CPP_MIN_LOG_LEVEL=2
-export WANDB_MODE=\${WANDB_MODE_VALUE}
+export WANDB_MODE=${WANDB_MODE_VALUE}
 export PYTHONNOUSERSITE=1
 
-cd \${REPO_ROOT}
+cd ${REPO_ROOT}
 
 python -u scripts/train.py \
-  --config \${CONFIG_PATH}
+  --config ${CONFIG_PATH}
 "
