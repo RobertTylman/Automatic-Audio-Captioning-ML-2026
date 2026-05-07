@@ -65,6 +65,7 @@ class DCASE24BaselineCaptioner(nn.Module):
         self.fusion = build_fusion_module(
             fusion_config=config["fusion"],
             input_dims=branch_dims,
+            branch_names=self.branch_names,
         )
 
         self.postencoder = ConformerPostEncoder(config["conformer"])

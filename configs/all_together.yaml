@@ -8,7 +8,7 @@ data:
   train_caption_mode: random
   val_caption_mode: first
   batch_size: 16
-  num_workers: 4
+  num_workers: 0
   max_caption_tokens: 32
   tokenizer_name: facebook/bart-base
 
@@ -112,7 +112,8 @@ model:
   fusion:
     stage: early
     # mode can be: feature, sequence, learned_resampling
-    mode: feature
+    mode: learned_resampling
+    debug_shapes: true
     resampling_num_heads: 8
     output_dim: 768
     dropout: 0.1
@@ -126,8 +127,13 @@ model:
     dropout: 0.1
 
 training:
-  learning_rate: 5.0e-5
+  learning_rate: 1.0e-4
   weight_decay: 0.01
+  lr_scheduler:
+    name: inverse_lr_half_mix
+    warmup: 0.99
+    inv_gamma: 2000
+    power: 10
   max_epochs: 50
   grad_clip_val: 1.0
   precision: 32-true
@@ -147,6 +153,6 @@ training:
 logging:
   entity: yd3245-new-york-university
   project: automatic-audio-captioning-ml-2026
-  run_name: all_together_correct_fusing
-  save_dir: /scratch/rht9410/clotho/run_outputs/all_together_correct_fusing
+  run_name: all_together_learned_fusing
+  save_dir: /scratch/rht9410/clotho/run_outputs/all_together_learned_fusing
   use_wandb: true

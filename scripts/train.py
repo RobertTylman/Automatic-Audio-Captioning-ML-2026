@@ -5,7 +5,7 @@ from pathlib import Path
 
 import lightning as L
 import yaml
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 
 
@@ -128,6 +128,7 @@ def main() -> None:
         WandbValidationSamplesCallback(
             num_samples=config["training"].get("validation_preview_count", 4)
         ),
+        LearningRateMonitor(logging_interval="step"),
     ]
     log_startup_step(start_time, "callbacks created")
 

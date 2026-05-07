@@ -3,6 +3,7 @@ import torch
 
 from .freezing import apply_freeze_policy
 from .metrics import compute_caption_metrics
+from .schedulers import build_lr_scheduler
 
 
 class AudioCaptioningLightningModule(L.LightningModule):
@@ -99,4 +100,19 @@ class AudioCaptioningLightningModule(L.LightningModule):
             lr=self.training_config["learning_rate"],
             weight_decay=self.training_config["weight_decay"],
         )
-        return optimizer
+        scheduler = build_lr_scheduler(
+            optimizer=optimizer,
+            scheduler_config=self.training_config.get("lr_scheduler"),
+        )
+        if scheduler is None:
+            return optimizer
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+                "frequency": 1,
+                "name": "lr",
+            },
+        }

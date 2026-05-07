@@ -8,7 +8,7 @@ data:
   train_caption_mode: random
   val_caption_mode: first
   batch_size: 16
-  num_workers: 0
+  num_workers: 4
   max_caption_tokens: 32
   tokenizer_name: facebook/bart-base
 
@@ -29,6 +29,12 @@ model:
     attention_dropout: 0.1
     activation_dropout: 0.1
     label_smoothing: 0.1
+    audio_projection:
+      type: linear          # identity, linear
+      layer_norm: true
+      bias: false
+      init: small_normal    # default, zero, small_normal
+      init_std: 1.0e-3
 
   beats_encoder:
     target_sample_rate: 16000
@@ -76,6 +82,7 @@ model:
     # mode can be: feature, sequence, learned_resampling
     mode: learned_resampling
     resampling_num_heads: 8
+    debug_shapes: false
     output_dim: 768
     dropout: 0.1
 
@@ -88,8 +95,13 @@ model:
     dropout: 0.1
 
 training:
-  learning_rate: 5.0e-5
+  learning_rate: 1.0e-4
   weight_decay: 0.01
+  lr_scheduler:
+    name: inverse_lr_half_mix
+    warmup: 0.99
+    inv_gamma: 2000
+    power: 10
   max_epochs: 50
   grad_clip_val: 1.0
   precision: 32-true
@@ -109,6 +121,6 @@ training:
 logging:
   entity: yd3245-new-york-university
   project: automatic-audio-captioning-ml-2026
-  run_name: beats_convnext_fusing_attn_checkpoint_bart_correct
-  save_dir: /scratch/rht9410/clotho/run_outputs/beats_convnext_fusing_attn_checkpoint_bart_correct
+  run_name: beats_convnext_learned_resampling_scheduler
+  save_dir: /scratch/rht9410/clotho/run_outputs/beats_convnext_learned_resampling_scheduler
   use_wandb: true
