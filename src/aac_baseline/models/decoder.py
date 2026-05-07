@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from transformers import BartForConditionalGeneration
 from transformers.models.bart.modeling_bart import BartConfig, BartDecoder
 
 
@@ -10,6 +11,61 @@ from transformers.models.bart.modeling_bart import BartConfig, BartDecoder
 class DecoderOutput:
     loss: torch.Tensor | None
     logits: torch.Tensor
+
+
+class AudioConditioningProjection(nn.Module):
+    """
+    Optional adapter between the audio stack and BART cross-attention.
+
+    Keeping this disabled preserves the previous behavior. Enabling a small- or
+    zero-initialized projection lets the pretrained BART decoder receive audio
+    conditioning gradually instead of seeing full-strength non-text embeddings
+    from step one.
+    """
+
+    def __init__(self, d_model: int, config: dict | None) -> None:
+        super().__init__()
+        config = config or {}
+        projection_type = config.get("type", "identity")
+        self.projection_type = projection_type
+
+        if projection_type == "identity":
+            self.norm = nn.Identity()
+            self.proj = nn.Identity()
+            return
+
+        if projection_type != "linear":
+            raise ValueError(
+                "Unsupported audio_projection type. "
+                f"Expected 'identity' or 'linear', got {projection_type!r}."
+            )
+
+        self.norm = nn.LayerNorm(d_model) if config.get("layer_norm", False) else nn.Identity()
+        self.proj = nn.Linear(d_model, d_model, bias=config.get("bias", False))
+        self._initialize_projection(
+            init=config.get("init", "default"),
+            init_std=config.get("init_std", 1e-3),
+        )
+
+    def _initialize_projection(self, init: str, init_std: float) -> None:
+        if init == "default":
+            return
+
+        if init == "zero":
+            nn.init.zeros_(self.proj.weight)
+        elif init == "small_normal":
+            nn.init.normal_(self.proj.weight, mean=0.0, std=init_std)
+        else:
+            raise ValueError(
+                "Unsupported audio_projection init. "
+                f"Expected 'default', 'zero', or 'small_normal', got {init!r}."
+            )
+
+        if self.proj.bias is not None:
+            nn.init.zeros_(self.proj.bias)
+
+    def forward(self, encoder_hidden_states: torch.Tensor) -> torch.Tensor:
+        return self.proj(self.norm(encoder_hidden_states))
 
 
 def shift_tokens_right(
@@ -31,31 +87,58 @@ class BartCaptionDecoder(nn.Module):
 
     def __init__(self, config: dict) -> None:
         super().__init__()
-        self.config = BartConfig(
-            vocab_size=config["vocab_size"],
+        self.label_smoothing = config.get("label_smoothing", 0.0)
+        self.audio_projection = AudioConditioningProjection(
             d_model=config["d_model"],
-            decoder_layers=config["decoder_layers"],
-            decoder_ffn_dim=config["decoder_ffn_dim"],
-            decoder_attention_heads=config["decoder_attention_heads"],
-            max_position_embeddings=config["max_position_embeddings"],
-            dropout=config["dropout"],
-            attention_dropout=config["attention_dropout"],
-            activation_dropout=config["activation_dropout"],
-            pad_token_id=config["pad_token_id"],
-            bos_token_id=config["bos_token_id"],
-            eos_token_id=config["eos_token_id"],
-            decoder_start_token_id=config["decoder_start_token_id"],
+            config=config.get("audio_projection"),
         )
+        pretrained_name = config.get("pretrained_model_name_or_path")
+        if pretrained_name:
+            pretrained = BartForConditionalGeneration.from_pretrained(pretrained_name)
+            self.config = pretrained.config
+            self.config.pad_token_id = config["pad_token_id"]
+            self.config.bos_token_id = config["bos_token_id"]
+            self.config.eos_token_id = config["eos_token_id"]
+            self.config.decoder_start_token_id = config["decoder_start_token_id"]
 
-        self.token_embedding = nn.Embedding(
-            self.config.vocab_size,
-            self.config.d_model,
-            padding_idx=self.config.pad_token_id,
-        )
-        self.decoder = BartDecoder(self.config)
-        self.decoder.embed_tokens = self.token_embedding
-        self.lm_head = nn.Linear(self.config.d_model, self.config.vocab_size, bias=False)
-        self.final_logits_bias = nn.Parameter(torch.zeros(1, self.config.vocab_size))
+            if self.config.d_model != config["d_model"]:
+                raise ValueError(
+                    "Pretrained BART d_model does not match the audio stack. "
+                    f"Got pretrained d_model={self.config.d_model}, "
+                    f"configured d_model={config['d_model']}."
+                )
+
+            self.decoder = pretrained.model.decoder
+            self.lm_head = pretrained.lm_head
+            self.final_logits_bias = nn.Parameter(
+                pretrained.final_logits_bias.clone().detach()
+            )
+        else:
+            self.config = BartConfig(
+                vocab_size=config["vocab_size"],
+                d_model=config["d_model"],
+                decoder_layers=config["decoder_layers"],
+                decoder_ffn_dim=config["decoder_ffn_dim"],
+                decoder_attention_heads=config["decoder_attention_heads"],
+                max_position_embeddings=config["max_position_embeddings"],
+                dropout=config["dropout"],
+                attention_dropout=config["attention_dropout"],
+                activation_dropout=config["activation_dropout"],
+                pad_token_id=config["pad_token_id"],
+                bos_token_id=config["bos_token_id"],
+                eos_token_id=config["eos_token_id"],
+                decoder_start_token_id=config["decoder_start_token_id"],
+            )
+
+            self.token_embedding = nn.Embedding(
+                self.config.vocab_size,
+                self.config.d_model,
+                padding_idx=self.config.pad_token_id,
+            )
+            self.decoder = BartDecoder(self.config)
+            self.decoder.embed_tokens = self.token_embedding
+            self.lm_head = nn.Linear(self.config.d_model, self.config.vocab_size, bias=False)
+            self.final_logits_bias = nn.Parameter(torch.zeros(1, self.config.vocab_size))
 
     def forward(
         self,
@@ -72,6 +155,7 @@ class BartCaptionDecoder(nn.Module):
         )
 
         decoder_attention_mask = decoder_input_ids.ne(self.config.pad_token_id).long()
+        encoder_hidden_states = self.audio_projection(encoder_hidden_states)
         encoder_attention_mask = (~encoder_padding_mask).long()
 
         outputs = self.decoder(
@@ -87,6 +171,7 @@ class BartCaptionDecoder(nn.Module):
             logits.view(-1, logits.size(-1)),
             labels.view(-1),
             ignore_index=-100,
+            label_smoothing=self.label_smoothing,
         )
         return DecoderOutput(loss=loss, logits=logits)
 
@@ -106,6 +191,12 @@ class BartCaptionDecoder(nn.Module):
         )
 
         encoder_attention_mask = (~encoder_padding_mask).long()
+        encoder_hidden_states = self.audio_projection(encoder_hidden_states)
+        unfinished_sequences = torch.ones(
+            batch_size,
+            dtype=torch.long,
+            device=encoder_hidden_states.device,
+        )
 
         for _ in range(max_length - 1):
             decoder_attention_mask = generated.ne(self.config.pad_token_id).long()
@@ -118,9 +209,16 @@ class BartCaptionDecoder(nn.Module):
             )
             next_token = self.lm_head(outputs.last_hidden_state[:, -1]) + self.final_logits_bias
             next_token = next_token.argmax(dim=-1, keepdim=True)
+            next_token = (
+                next_token * unfinished_sequences.unsqueeze(1)
+                + self.config.pad_token_id * (1 - unfinished_sequences.unsqueeze(1))
+            )
             generated = torch.cat([generated, next_token], dim=1)
 
-            if torch.all(next_token.squeeze(1) == self.config.eos_token_id):
+            unfinished_sequences = unfinished_sequences.mul(
+                (next_token.squeeze(1) != self.config.eos_token_id).long()
+            )
+            if unfinished_sequences.max() == 0:
                 break
 
         return generated

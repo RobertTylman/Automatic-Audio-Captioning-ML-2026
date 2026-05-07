@@ -132,6 +132,92 @@ class SequenceFusion(nn.Module):
         return EncoderOutput(sequence=sequence, padding_mask=padding_mask)
 
 
+class LearnedResamplingFusion(nn.Module):
+    """
+    Learned alignment without interpolating latent vectors.
+
+    The first branch defines the output time axis. Each secondary branch keeps
+    its native sequence length, and anchor timesteps query it through
+    cross-attention to produce an aligned representation.
+    """
+
+    def __init__(
+        self,
+        input_dims: list[int],
+        output_dim: int,
+        dropout: float,
+        num_heads: int,
+    ) -> None:
+        super().__init__()
+        if len(input_dims) < 2:
+            raise ValueError(f"LearnedResamplingFusion needs >= 2 branches, got {len(input_dims)}")
+        if output_dim % num_heads != 0:
+            raise ValueError(
+                "LearnedResamplingFusion output_dim must be divisible by num_heads. "
+                f"Got output_dim={output_dim}, num_heads={num_heads}."
+            )
+
+        self.input_dims = list(input_dims)
+        self.projections = nn.ModuleList(
+            [nn.Linear(input_dim, output_dim) for input_dim in self.input_dims]
+        )
+        self.resamplers = nn.ModuleList(
+            [
+                nn.MultiheadAttention(
+                    embed_dim=output_dim,
+                    num_heads=num_heads,
+                    dropout=dropout,
+                    batch_first=True,
+                )
+                for _ in self.input_dims[1:]
+            ]
+        )
+
+        total_dim = output_dim * len(self.input_dims)
+        self.norm = nn.LayerNorm(total_dim)
+        self.fc1 = nn.Linear(total_dim, output_dim)
+        self.act = nn.GELU()
+        self.fc2 = nn.Linear(output_dim, output_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, *branches: EncoderOutput) -> EncoderOutput:
+        if len(branches) != len(self.projections):
+            raise ValueError(
+                f"LearnedResamplingFusion was built for {len(self.projections)} branches, "
+                f"got {len(branches)}"
+            )
+
+        projected_branches = [
+            projection(branch.sequence)
+            for projection, branch in zip(self.projections, branches)
+        ]
+        anchor = projected_branches[0]
+
+        aligned_sequences = [anchor]
+        for resampler, projected_branch, branch in zip(
+            self.resamplers,
+            projected_branches[1:],
+            branches[1:],
+        ):
+            aligned_branch, _ = resampler(
+                query=anchor,
+                key=projected_branch,
+                value=projected_branch,
+                key_padding_mask=branch.padding_mask,
+                need_weights=False,
+            )
+            aligned_sequences.append(aligned_branch)
+
+        fused = torch.cat(aligned_sequences, dim=-1)
+        fused = self.norm(fused)
+        fused = self.fc1(fused)
+        fused = self.act(fused)
+        fused = self.dropout(fused)
+        fused = self.fc2(fused)
+        fused = fused.masked_fill(branches[0].padding_mask.unsqueeze(-1), 0.0)
+        return EncoderOutput(sequence=fused, padding_mask=branches[0].padding_mask)
+
+
 def build_fusion_module(
     fusion_config: dict,
     input_dims: list[int],
@@ -148,6 +234,14 @@ def build_fusion_module(
             input_dims=input_dims,
             output_dim=fusion_config["output_dim"],
             dropout=fusion_config["dropout"],
+        )
+
+    if fusion_config["mode"] in {"learned_resampling", "learned_resample", "cross_attention_resample"}:
+        return LearnedResamplingFusion(
+            input_dims=input_dims,
+            output_dim=fusion_config["output_dim"],
+            dropout=fusion_config["dropout"],
+            num_heads=fusion_config.get("resampling_num_heads", 8),
         )
 
     raise ValueError(f"Unsupported fusion mode: {fusion_config['mode']}")
