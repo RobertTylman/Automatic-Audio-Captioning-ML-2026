@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=aac_train_1gpu
-#SBATCH --account=torch_pr_529_general
+#SBATCH --account=torch_pr_1003_general
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
