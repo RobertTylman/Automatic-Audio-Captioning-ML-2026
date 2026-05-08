@@ -185,7 +185,7 @@ class ClapSimilarityScorer:
             sample_rate = target_sample_rate
 
         audio_inputs = self.processor(
-            audio=waveform.detach().cpu().numpy(),
+            audios=waveform.detach().cpu().numpy(),
             sampling_rate=sample_rate,
             return_tensors="pt",
         )
