@@ -53,7 +53,7 @@ python -u scripts/evaluation/generate_outputs.py \
   --caption-csv ${CAPTION_CSV} \
   --mode greedy
 
-echo "Generation complete. Starting scoring..."
+echo \"Generation complete. Starting scoring...\"
 
 python -u scripts/evaluation/score_outputs.py \
   --predictions-csv ${OUTPUT_DIR}/greedy_output.csv \
