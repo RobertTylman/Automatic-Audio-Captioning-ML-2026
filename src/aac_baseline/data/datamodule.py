@@ -9,10 +9,17 @@ class ClothoDataModule(L.LightningDataModule):
     def __init__(self, data_config: dict) -> None:
         super().__init__()
         self.data_config = data_config
-        self.collator = AudioCaptioningCollator(
+        self.train_collator = AudioCaptioningCollator(
             tokenizer_name=data_config["tokenizer_name"],
             max_caption_tokens=data_config["max_caption_tokens"],
+            include_all_caption_labels=False,
         )
+        self.val_collator = AudioCaptioningCollator(
+            tokenizer_name=data_config["tokenizer_name"],
+            max_caption_tokens=data_config["max_caption_tokens"],
+            include_all_caption_labels=True,
+        )
+        self.collator = self.train_collator
 
     def setup(self, stage: str | None = None) -> None:
         print(f"[data] datamodule.setup(stage={stage})", flush=True)
@@ -20,6 +27,7 @@ class ClothoDataModule(L.LightningDataModule):
             audio_dir=self.data_config["train_audio_dir"],
             caption_csv=self.data_config["train_caption_csv"],
             caption_mode=self.data_config.get("train_caption_mode", "random"),
+            stable_audio_augment=self.data_config.get("stable_audio_augment"),
         )
         self.val_dataset = ClothoCaptionDataset(
             audio_dir=self.data_config["val_audio_dir"],
@@ -42,7 +50,7 @@ class ClothoDataModule(L.LightningDataModule):
             batch_size=self.data_config["batch_size"],
             shuffle=True,
             num_workers=self.data_config["num_workers"],
-            collate_fn=self.collator,
+            collate_fn=self.train_collator,
             pin_memory=True,
         )
 
@@ -57,6 +65,6 @@ class ClothoDataModule(L.LightningDataModule):
             batch_size=self.data_config["batch_size"],
             shuffle=False,
             num_workers=self.data_config["num_workers"],
-            collate_fn=self.collator,
+            collate_fn=self.val_collator,
             pin_memory=True,
         )

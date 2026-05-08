@@ -45,7 +45,15 @@ class AudioCaptioningLightningModule(L.LightningModule):
         return output.loss
 
     def validation_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
-        output = self(batch)
+        if batch.get("all_labels") is not None:
+            output = self.model.forward_all_captions(
+                waveforms=batch["waveforms"],
+                waveform_lengths=batch["waveform_lengths"],
+                sample_rates=batch["sample_rates"],
+                labels=batch["all_labels"],
+            )
+        else:
+            output = self(batch)
         self.log(
             "val_loss",
             output.loss,
