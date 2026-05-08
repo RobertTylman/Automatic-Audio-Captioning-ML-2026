@@ -41,6 +41,7 @@ export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 export TF_CPP_MIN_LOG_LEVEL=2
+export PYTHONPATH=/scratch/yd3245/pip-packages:$PYTHONPATH
 
 cd ${REPO_ROOT}
 
