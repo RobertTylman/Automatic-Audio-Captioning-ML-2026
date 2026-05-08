@@ -144,6 +144,40 @@ class DCASE24BaselineCaptioner(nn.Module):
             labels=labels,
         )
 
+    def forward_all_captions(
+        self,
+        waveforms: torch.Tensor,
+        waveform_lengths: torch.Tensor,
+        sample_rates: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> DecoderOutput:
+        if labels.ndim != 3:
+            raise ValueError(
+                "forward_all_captions expects labels with shape "
+                f"(batch, captions, tokens), got {tuple(labels.shape)}"
+            )
+
+        encoder_output = self.encode_audio(waveforms, waveform_lengths, sample_rates)
+        batch_size, captions_per_audio, max_tokens = labels.shape
+        flat_labels = labels.reshape(batch_size * captions_per_audio, max_tokens)
+        encoder_sequence = encoder_output.sequence.repeat_interleave(
+            captions_per_audio,
+            dim=0,
+        )
+        encoder_padding_mask = encoder_output.padding_mask.repeat_interleave(
+            captions_per_audio,
+            dim=0,
+        )
+        caption_losses = self.decoder.sequence_losses(
+            encoder_hidden_states=encoder_sequence,
+            encoder_padding_mask=encoder_padding_mask,
+            labels=flat_labels,
+        )
+        return DecoderOutput(
+            loss=caption_losses.view(batch_size, captions_per_audio).mean(),
+            logits=labels.new_empty(0),
+        )
+
     @torch.no_grad()
     def score_captions(
         self,

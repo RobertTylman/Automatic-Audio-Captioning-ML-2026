@@ -113,6 +113,7 @@ class BartCaptionDecoder(nn.Module):
             self.final_logits_bias = nn.Parameter(
                 pretrained.final_logits_bias.clone().detach()
             )
+            self._freeze_pretrained_modules(config.get("freeze_pretrained_modules", []))
         else:
             self.config = BartConfig(
                 vocab_size=config["vocab_size"],
@@ -139,6 +140,67 @@ class BartCaptionDecoder(nn.Module):
             self.decoder.embed_tokens = self.token_embedding
             self.lm_head = nn.Linear(self.config.d_model, self.config.vocab_size, bias=False)
             self.final_logits_bias = nn.Parameter(torch.zeros(1, self.config.vocab_size))
+
+    @staticmethod
+    def _set_trainable(module: nn.Module, trainable: bool) -> None:
+        for parameter in module.parameters():
+            parameter.requires_grad = trainable
+
+    def _normalize_freeze_modules(self, freeze_modules) -> set[str]:
+        if freeze_modules is None:
+            return set()
+        if isinstance(freeze_modules, dict):
+            return {
+                str(module_name)
+                for module_name, should_freeze in freeze_modules.items()
+                if should_freeze
+            }
+        if isinstance(freeze_modules, str):
+            return {freeze_modules}
+        return {str(module_name) for module_name in freeze_modules}
+
+    def _freeze_pretrained_modules(self, freeze_modules) -> None:
+        modules = self._normalize_freeze_modules(freeze_modules)
+        if not modules:
+            return
+
+        aliases = {
+            "self_attention": "self_attn",
+            "feed_forward": "ffn",
+            "feedforward": "ffn",
+            "cross_attention": "encoder_attn",
+            "cross_attn": "encoder_attn",
+            "output_projection": "lm_head",
+            "output_head": "lm_head",
+            "all_decoder": "decoder",
+        }
+        modules = {aliases.get(module_name, module_name) for module_name in modules}
+
+        if "all" in modules or "decoder" in modules:
+            self._set_trainable(self.decoder, trainable=False)
+
+        if "embeddings" in modules:
+            self._set_trainable(self.decoder.embed_tokens, trainable=False)
+            self._set_trainable(self.decoder.embed_positions, trainable=False)
+            if hasattr(self.decoder, "layernorm_embedding"):
+                self._set_trainable(self.decoder.layernorm_embedding, trainable=False)
+
+        for layer in self.decoder.layers:
+            if "self_attn" in modules:
+                self._set_trainable(layer.self_attn, trainable=False)
+            if "encoder_attn" in modules:
+                self._set_trainable(layer.encoder_attn, trainable=False)
+            if "ffn" in modules:
+                self._set_trainable(layer.fc1, trainable=False)
+                self._set_trainable(layer.fc2, trainable=False)
+            if "layer_norms" in modules or "layernorms" in modules:
+                self._set_trainable(layer.self_attn_layer_norm, trainable=False)
+                self._set_trainable(layer.encoder_attn_layer_norm, trainable=False)
+                self._set_trainable(layer.final_layer_norm, trainable=False)
+
+        if "lm_head" in modules or "all" in modules:
+            self._set_trainable(self.lm_head, trainable=False)
+            self.final_logits_bias.requires_grad = False
 
     def forward(
         self,
@@ -174,6 +236,42 @@ class BartCaptionDecoder(nn.Module):
             label_smoothing=self.label_smoothing,
         )
         return DecoderOutput(loss=loss, logits=logits)
+
+    def sequence_losses(
+        self,
+        encoder_hidden_states: torch.Tensor,
+        encoder_padding_mask: torch.Tensor,
+        labels: torch.Tensor,
+        label_smoothing: float | None = None,
+    ) -> torch.Tensor:
+        decoder_input_ids = shift_tokens_right(
+            labels=labels,
+            pad_token_id=self.config.pad_token_id,
+            decoder_start_token_id=self.config.decoder_start_token_id,
+        )
+        decoder_attention_mask = decoder_input_ids.ne(self.config.pad_token_id).long()
+        encoder_hidden_states = self.audio_projection(encoder_hidden_states)
+        encoder_attention_mask = (~encoder_padding_mask).long()
+
+        outputs = self.decoder(
+            input_ids=decoder_input_ids,
+            attention_mask=decoder_attention_mask,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+            return_dict=True,
+        )
+        logits = self.lm_head(outputs.last_hidden_state) + self.final_logits_bias
+        token_losses = F.cross_entropy(
+            logits.transpose(1, 2),
+            labels,
+            ignore_index=-100,
+            reduction="none",
+            label_smoothing=(
+                self.label_smoothing if label_smoothing is None else label_smoothing
+            ),
+        )
+        sequence_lengths = labels.ne(-100).sum(dim=-1).clamp_min(1)
+        return token_losses.sum(dim=-1) / sequence_lengths
 
     @torch.no_grad()
     def score_labels(
