@@ -343,6 +343,7 @@ def main() -> None:
             top_pairwise_keep=args.top_pairwise_keep,
             openai_model=args.openai_model,
             use_llm=not args.no_llm,
+            show_sampled_captions=True,
         )
 
     completed = load_completed(output_csv)

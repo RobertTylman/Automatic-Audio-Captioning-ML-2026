@@ -39,6 +39,7 @@ class CandidateCaption:
 @dataclass
 class PipelineResult:
     sample_id: str
+    nucleus_sampled_captions: list[str]
     candidates: list[CandidateCaption]
     captions_for_llm: list[str]
     final_caption: str
@@ -240,6 +241,7 @@ class CaptionRerankingPipeline:
         top_pairwise_keep: int = 12,
         openai_model: str = "gpt-4.1-mini",
         use_llm: bool = True,
+        show_sampled_captions: bool = False,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
@@ -261,6 +263,7 @@ class CaptionRerankingPipeline:
         self.top_pairwise_keep = top_pairwise_keep
         self.openai_model = openai_model
         self.use_llm = use_llm
+        self.show_sampled_captions = show_sampled_captions
 
     @torch.no_grad()
     def generate_candidates(
@@ -398,9 +401,17 @@ class CaptionRerankingPipeline:
             top_audio = candidates[: min(self.top_audio_keep, len(candidates))]
             selected = self.select_pairwise_central(top_audio)
             captions_for_llm = [candidate.text for candidate in selected]
+            if self.show_sampled_captions:
+                print(
+                    f"[nucleus] {sample_id}: {len(captions)} sampled captions",
+                    flush=True,
+                )
+                for caption_index, caption in enumerate(captions, start=1):
+                    print(f"[nucleus]   {caption_index:02d}. {caption}", flush=True)
             results.append(
                 PipelineResult(
                     sample_id=sample_id,
+                    nucleus_sampled_captions=captions,
                     candidates=candidates,
                     captions_for_llm=captions_for_llm,
                     final_caption=self.summarize(captions_for_llm),
