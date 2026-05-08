@@ -80,7 +80,7 @@ model:
   fusion:
     stage: early
     # mode can be: feature, sequence, learned_resampling
-    mode: feature
+    mode: learned_resampling
     resampling_num_heads: 8
     output_dim: 768
     dropout: 0.1

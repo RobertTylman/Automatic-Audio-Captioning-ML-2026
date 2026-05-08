@@ -5,6 +5,33 @@ import torch.nn.functional as F
 from .common import EncoderOutput
 
 
+def _default_branch_names(count: int) -> list[str]:
+    return [f"branch_{index}" for index in range(count)]
+
+
+def _log_branch_shapes_once(
+    module_name: str,
+    branch_names: list[str],
+    branches: tuple[EncoderOutput, ...],
+    enabled: bool,
+) -> None:
+    if not enabled:
+        return
+
+    print(f"[fusion:{module_name}] input branch shapes", flush=True)
+    for branch_name, branch in zip(branch_names, branches):
+        valid_lengths = (~branch.padding_mask).sum(dim=1)
+        min_valid = int(valid_lengths.min().item()) if valid_lengths.numel() else 0
+        max_valid = int(valid_lengths.max().item()) if valid_lengths.numel() else 0
+        print(
+            f"[fusion:{module_name}] {branch_name}: "
+            f"sequence={tuple(branch.sequence.shape)} "
+            f"padding_mask={tuple(branch.padding_mask.shape)} "
+            f"valid_length_min={min_valid} valid_length_max={max_valid}",
+            flush=True,
+        )
+
+
 class FeatureFusion(nn.Module):
     """
     Feature fusion follows the paper's idea:
@@ -17,11 +44,21 @@ class FeatureFusion(nn.Module):
     "anchor" whose time axis everything else aligns to.
     """
 
-    def __init__(self, input_dims: list[int], output_dim: int, dropout: float) -> None:
+    def __init__(
+        self,
+        input_dims: list[int],
+        output_dim: int,
+        dropout: float,
+        branch_names: list[str] | None = None,
+        debug_shapes: bool = False,
+    ) -> None:
         super().__init__()
         if len(input_dims) < 2:
             raise ValueError(f"FeatureFusion needs >= 2 branches, got {len(input_dims)}")
         self.input_dims = list(input_dims)
+        self.branch_names = branch_names or _default_branch_names(len(input_dims))
+        self.debug_shapes = debug_shapes
+        self._logged_debug_shapes = False
         total_dim = sum(self.input_dims)
         self.norm = nn.LayerNorm(total_dim)
         self.fc1 = nn.Linear(total_dim, output_dim)
@@ -57,6 +94,14 @@ class FeatureFusion(nn.Module):
                 f"FeatureFusion was built for {len(self.input_dims)} branches, "
                 f"got {len(branches)}"
             )
+
+        _log_branch_shapes_once(
+            module_name=self.__class__.__name__,
+            branch_names=self.branch_names,
+            branches=branches,
+            enabled=self.debug_shapes and not self._logged_debug_shapes,
+        )
+        self._logged_debug_shapes = True
 
         anchor = branches[0]
         anchor_valid_lengths = (~anchor.padding_mask).sum(dim=1)
@@ -106,11 +151,21 @@ class SequenceFusion(nn.Module):
     Generalizes to any number of branches >= 2.
     """
 
-    def __init__(self, input_dims: list[int], output_dim: int, dropout: float) -> None:
+    def __init__(
+        self,
+        input_dims: list[int],
+        output_dim: int,
+        dropout: float,
+        branch_names: list[str] | None = None,
+        debug_shapes: bool = False,
+    ) -> None:
         super().__init__()
         if len(input_dims) < 2:
             raise ValueError(f"SequenceFusion needs >= 2 branches, got {len(input_dims)}")
         self.input_dims = list(input_dims)
+        self.branch_names = branch_names or _default_branch_names(len(input_dims))
+        self.debug_shapes = debug_shapes
+        self._logged_debug_shapes = False
         self.projections = nn.ModuleList(
             [nn.Linear(input_dim, output_dim) for input_dim in self.input_dims]
         )
@@ -122,6 +177,14 @@ class SequenceFusion(nn.Module):
                 f"SequenceFusion was built for {len(self.projections)} branches, "
                 f"got {len(branches)}"
             )
+
+        _log_branch_shapes_once(
+            module_name=self.__class__.__name__,
+            branch_names=self.branch_names,
+            branches=branches,
+            enabled=self.debug_shapes and not self._logged_debug_shapes,
+        )
+        self._logged_debug_shapes = True
 
         projected_sequences = [
             self.dropout(projection(branch.sequence))
@@ -147,6 +210,8 @@ class LearnedResamplingFusion(nn.Module):
         output_dim: int,
         dropout: float,
         num_heads: int,
+        branch_names: list[str] | None = None,
+        debug_shapes: bool = False,
     ) -> None:
         super().__init__()
         if len(input_dims) < 2:
@@ -158,6 +223,9 @@ class LearnedResamplingFusion(nn.Module):
             )
 
         self.input_dims = list(input_dims)
+        self.branch_names = branch_names or _default_branch_names(len(input_dims))
+        self.debug_shapes = debug_shapes
+        self._logged_debug_shapes = False
         self.projections = nn.ModuleList(
             [nn.Linear(input_dim, output_dim) for input_dim in self.input_dims]
         )
@@ -186,6 +254,14 @@ class LearnedResamplingFusion(nn.Module):
                 f"LearnedResamplingFusion was built for {len(self.projections)} branches, "
                 f"got {len(branches)}"
             )
+
+        _log_branch_shapes_once(
+            module_name=self.__class__.__name__,
+            branch_names=self.branch_names,
+            branches=branches,
+            enabled=self.debug_shapes and not self._logged_debug_shapes,
+        )
+        self._logged_debug_shapes = True
 
         projected_branches = [
             projection(branch.sequence)
@@ -221,12 +297,16 @@ class LearnedResamplingFusion(nn.Module):
 def build_fusion_module(
     fusion_config: dict,
     input_dims: list[int],
+    branch_names: list[str] | None = None,
 ) -> nn.Module:
+    debug_shapes = fusion_config.get("debug_shapes", False)
     if fusion_config["mode"] == "feature":
         return FeatureFusion(
             input_dims=input_dims,
             output_dim=fusion_config["output_dim"],
             dropout=fusion_config["dropout"],
+            branch_names=branch_names,
+            debug_shapes=debug_shapes,
         )
 
     if fusion_config["mode"] == "sequence":
@@ -234,6 +314,8 @@ def build_fusion_module(
             input_dims=input_dims,
             output_dim=fusion_config["output_dim"],
             dropout=fusion_config["dropout"],
+            branch_names=branch_names,
+            debug_shapes=debug_shapes,
         )
 
     if fusion_config["mode"] in {"learned_resampling", "learned_resample", "cross_attention_resample"}:
@@ -242,6 +324,8 @@ def build_fusion_module(
             output_dim=fusion_config["output_dim"],
             dropout=fusion_config["dropout"],
             num_heads=fusion_config.get("resampling_num_heads", 8),
+            branch_names=branch_names,
+            debug_shapes=debug_shapes,
         )
 
     raise ValueError(f"Unsupported fusion mode: {fusion_config['mode']}")
