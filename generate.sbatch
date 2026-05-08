@@ -58,5 +58,6 @@ echo \"Generation complete. Starting scoring...\"
 python -u scripts/evaluation/score_outputs.py \
   --predictions-csv ${OUTPUT_DIR}/greedy_output.csv \
   --references-csv ${CAPTION_CSV} \
-  --output-dir ${OUTPUT_DIR}/scores
+  --output-dir ${OUTPUT_DIR}/scores \
+  --metrics fense
 "
