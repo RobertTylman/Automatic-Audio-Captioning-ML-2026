@@ -136,12 +136,132 @@ focused on fusion experiments.
 Fusion behavior is implemented in `src/aac_baseline/models/fusion.py` and is
 controlled by `model.fusion.mode` in the config.
 
-- `feature`: aligns secondary branches to the BEATs time axis, concatenates
-  features, and compresses them back to the configured hidden dimension.
-- `sequence`: projects each branch to a shared dimension and concatenates the
-  sequences along the time axis.
-- `learned_resampling`: uses cross-attention from the anchor branch into each
-  secondary branch before combining features.
+Each encoder branch returns an `EncoderOutput` with a sequence tensor and a
+padding mask:
+
+```text
+sequence:     (batch, time, features)
+padding_mask: (batch, time)
+```
+
+The important axes are:
+
+- `time`, also called the sequence axis: how many encoder tokens the decoder
+  can attend to.
+- `features`, also called the hidden axis: how much information is stored in
+  each timestep vector.
+
+For example, an encoder output shaped `(B, 100, 768)` contains `B` audio clips,
+`100` timesteps per clip, and a `768`-dimensional feature vector at each
+timestep.
+
+#### `sequence` fusion
+
+`sequence` fusion projects each branch to a shared hidden size and concatenates
+the branches along the time axis. Each encoder keeps its native time resolution,
+and the decoder attends over one longer memory sequence.
+
+```text
+BEATs:    (B, T_beats, D_beats)       -> (B, T_beats, D_out)
+ConvNeXt: (B, T_convnext, D_convnext) -> (B, T_convnext, D_out)
+AST:      (B, T_ast, D_ast)           -> (B, T_ast, D_out)
+
+concat on time axis:
+
+(B, T_beats + T_convnext + T_ast, D_out)
+```
+
+```mermaid
+flowchart LR
+    B[BEATs tokens] --> P1[Linear projection]
+    C[ConvNeXt tokens] --> P2[Linear projection]
+    A[AST tokens] --> P3[Linear projection]
+    P1 --> CAT[Concatenate on time axis]
+    P2 --> CAT
+    P3 --> CAT
+    CAT --> OUT[Long fused sequence for BART]
+```
+
+This mode is simple and preserves branch-specific temporal structure, but it
+increases the sequence length passed to the decoder.
+
+#### `feature` fusion
+
+`feature` fusion uses BEATs as the anchor timeline. Secondary branches are
+interpolated to match the valid BEATs length, then the branch features are
+concatenated at each timestep and compressed back to `output_dim`.
+
+```text
+BEATs:    (B, T_beats, D_beats)
+ConvNeXt: (B, T_convnext, D_convnext) -> interpolate to (B, T_beats, D_convnext)
+AST:      (B, T_ast, D_ast)           -> interpolate to (B, T_beats, D_ast)
+
+concat on feature axis:
+
+(B, T_beats, D_beats + D_convnext + D_ast)
+
+compress:
+
+(B, T_beats, D_out)
+```
+
+```mermaid
+flowchart LR
+    B[BEATs anchor timeline] --> CAT[Concatenate on feature axis]
+    C[ConvNeXt tokens] --> I1[Interpolate to BEATs time]
+    A[AST tokens] --> I2[Interpolate to BEATs time]
+    I1 --> CAT
+    I2 --> CAT
+    CAT --> MLP[LayerNorm + MLP compression]
+    MLP --> OUT[BEATs-length fused sequence for BART]
+```
+
+This mode keeps the decoder memory short, but it forces all secondary encoders
+onto the BEATs time axis and may lose information during interpolation or
+compression.
+
+#### `learned_resampling` fusion
+
+`learned_resampling` also uses BEATs as the anchor timeline, but it learns the
+alignment instead of using fixed interpolation. Each BEATs timestep queries each
+secondary branch through multi-head cross-attention.
+
+```text
+query = projected BEATs sequence
+key   = projected secondary branch sequence
+value = projected secondary branch sequence
+
+secondary aligned to BEATs:
+
+(B, T_secondary, D_out) -> (B, T_beats, D_out)
+
+concat aligned features:
+
+(B, T_beats, D_out * num_branches)
+
+compress:
+
+(B, T_beats, D_out)
+```
+
+```mermaid
+flowchart LR
+    B[Projected BEATs anchor] --> Q[Cross-attention queries]
+    C[Projected ConvNeXt tokens] --> KV1[Keys and values]
+    A[Projected AST tokens] --> KV2[Keys and values]
+    Q --> R1[ConvNeXt resampled to BEATs time]
+    KV1 --> R1
+    Q --> R2[AST resampled to BEATs time]
+    KV2 --> R2
+    B --> CAT[Concatenate aligned features]
+    R1 --> CAT
+    R2 --> CAT
+    CAT --> MLP[LayerNorm + MLP compression]
+    MLP --> OUT[BEATs-length fused sequence for BART]
+```
+
+This mode is more flexible than fixed interpolation, but it adds parameters and
+can bottleneck secondary encoder information through the BEATs timeline.
 
 The fusion stage is controlled by `model.fusion.stage`:
 
