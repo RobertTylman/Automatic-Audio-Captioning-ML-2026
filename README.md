@@ -84,32 +84,7 @@ raw waveform
   -> caption tokens
 ```
 
-```mermaid
-flowchart TD
-    A[Raw audio waveform] --> B[Batch padding and metadata]
-
-    B --> E1[BEATs encoder]
-    B --> E2[Optional ConvNeXt encoder]
-    B --> E3[Optional AST encoder]
-
-    E1 --> F[Configurable fusion module]
-    E2 --> F
-    E3 --> F
-
-    F --> G[Conformer post-encoder]
-    G --> H[BART caption decoder]
-    H --> I[Greedy validation caption]
-
-    C[Reference captions] --> D[Tokenizer]
-    D --> H
-
-    H -. inference extension .-> S[Nucleus sampling]
-    S -.-> T[Candidate caption set]
-    T -.-> U[CLAP audio-text scoring]
-    U -.-> V[Reranked captions]
-    V -.-> W[LLM summarization]
-    W -.-> X[Final refined caption]
-```
+![Automatic audio captioning pipeline](docs/diagrams/readme-01-audio-captioning-pipeline.png)
 
 The solid path shows the implemented training and validation flow. The dashed
 path shows the intended extended inference pipeline: sample multiple candidate
