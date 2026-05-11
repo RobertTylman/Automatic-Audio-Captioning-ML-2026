@@ -1,4 +1,84 @@
+import time
+
 from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.utilities.rank_zero import rank_zero_only
+
+
+class TrainingProgressCallback(Callback):
+    def __init__(self, log_every_n_steps: int = 100) -> None:
+        super().__init__()
+        self.log_every_n_steps = max(1, int(log_every_n_steps))
+        self.epoch_start_time = None
+
+    @rank_zero_only
+    def _print(self, message: str) -> None:
+        print(message, flush=True)
+
+    def on_train_start(self, trainer, pl_module) -> None:
+        self._print(
+            "[progress] train_start "
+            f"epoch={trainer.current_epoch} global_step={trainer.global_step} "
+            f"world_size={trainer.world_size} "
+            f"num_devices={getattr(trainer, 'num_devices', 'unknown')} "
+            f"strategy={type(trainer.strategy).__name__}"
+        )
+        logger = trainer.logger
+        if trainer.is_global_zero and logger is not None and hasattr(logger, "experiment"):
+            experiment = logger.experiment
+            if hasattr(experiment, "log"):
+                experiment.log(
+                    {
+                        "trainer/current_epoch": trainer.current_epoch,
+                        "trainer/global_step": trainer.global_step,
+                        "trainer/world_size": trainer.world_size,
+                        "trainer/num_devices": getattr(trainer, "num_devices", 0),
+                    },
+                    step=trainer.global_step,
+                )
+
+    def on_train_epoch_start(self, trainer, pl_module) -> None:
+        self.epoch_start_time = time.perf_counter()
+        self._print(
+            "[progress] epoch_start "
+            f"epoch={trainer.current_epoch} global_step={trainer.global_step} "
+            f"train_batches={trainer.num_training_batches} "
+            f"val_batches={trainer.num_val_batches}"
+        )
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx: int) -> None:
+        if trainer.global_step == 0 or trainer.global_step % self.log_every_n_steps != 0:
+            return
+        self._print(
+            "[progress] train_batch "
+            f"epoch={trainer.current_epoch} batch_idx={batch_idx} "
+            f"global_step={trainer.global_step}/{trainer.estimated_stepping_batches}"
+        )
+
+    def on_validation_epoch_start(self, trainer, pl_module) -> None:
+        if trainer.sanity_checking:
+            return
+        self._print(
+            "[progress] validation_start "
+            f"epoch={trainer.current_epoch} global_step={trainer.global_step} "
+            f"val_batches={trainer.num_val_batches}"
+        )
+
+    def on_train_epoch_end(self, trainer, pl_module) -> None:
+        elapsed = None
+        if self.epoch_start_time is not None:
+            elapsed = time.perf_counter() - self.epoch_start_time
+        elapsed_text = "" if elapsed is None else f" elapsed_sec={elapsed:.1f}"
+        self._print(
+            "[progress] epoch_end "
+            f"epoch={trainer.current_epoch} global_step={trainer.global_step}"
+            f"{elapsed_text}"
+        )
+
+    def on_fit_end(self, trainer, pl_module) -> None:
+        self._print(
+            "[progress] fit_end "
+            f"epoch={trainer.current_epoch} global_step={trainer.global_step}"
+        )
 
 
 class WandbValidationSamplesCallback(Callback):
@@ -12,6 +92,9 @@ class WandbValidationSamplesCallback(Callback):
         self.num_samples = num_samples
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        if not trainer.is_global_zero:
+            return
+
         preview = pl_module.cached_validation_preview
         logger = trainer.logger
 

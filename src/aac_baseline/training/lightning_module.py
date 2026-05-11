@@ -24,6 +24,10 @@ class AudioCaptioningLightningModule(L.LightningModule):
             freeze_modules=training_config.get("freeze_modules", []),
         )
 
+    def _sync_dist(self) -> bool:
+        trainer = getattr(self, "trainer", None)
+        return bool(trainer is not None and getattr(trainer, "world_size", 1) > 1)
+
     def forward(self, batch: dict):
         return self.model(
             waveforms=batch["waveforms"],
@@ -41,6 +45,7 @@ class AudioCaptioningLightningModule(L.LightningModule):
             on_step=True,
             on_epoch=True,
             batch_size=batch["waveforms"].size(0),
+            sync_dist=self._sync_dist(),
         )
         return output.loss
 
@@ -61,6 +66,7 @@ class AudioCaptioningLightningModule(L.LightningModule):
             on_step=False,
             on_epoch=True,
             batch_size=batch["waveforms"].size(0),
+            sync_dist=self._sync_dist(),
         )
 
         if batch_idx == 0:
@@ -98,6 +104,7 @@ class AudioCaptioningLightningModule(L.LightningModule):
                     on_step=False,
                     on_epoch=True,
                     batch_size=len(decoded_predictions),
+                    sync_dist=self._sync_dist(),
                 )
 
         return output.loss
