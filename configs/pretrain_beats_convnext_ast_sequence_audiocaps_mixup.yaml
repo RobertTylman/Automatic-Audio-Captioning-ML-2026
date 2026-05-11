@@ -1,11 +1,8 @@
 seed: 42
 
 data:
-  train_audio_dir: /scratch/rht9410/clotho/development
-  train_caption_csv: /scratch/rht9410/clotho/clotho_captions_development.csv
-  val_audio_dir: /scratch/rht9410/clotho/validation
-  val_caption_csv: /scratch/rht9410/clotho/clotho_captions_validation.csv
-  train_caption_mode: random
+  val_audio_dir: path/to/clotho/validation
+  val_caption_csv: path/to/clotho/clotho_captions_validation.csv
   val_caption_mode: first
   batch_size: 32
   num_workers: 4
@@ -15,17 +12,16 @@ data:
   train_mix:
     mode: concat
   train_sources:
-    clotho:
+    audiocaps:
       enabled: true
-      audio_dir: /scratch/rht9410/clotho/development
-      caption_csv: /scratch/rht9410/clotho/clotho_captions_development.csv
-      caption_mode: random
-      stable_audio_augment:
-        enabled: false
-        run_dir: /scratch/rht9410/clotho/generated/clotho_augment/generation/clotho_v21_aug_match_gt
-        splits: [development]
-        generated_audio_probability: 0.5
-        require_generated_for_all: false
+      root_dir: path/to/audiocaps/AUDIOCAPS_32000Hz
+      split: train
+    clotho_mixup:
+      enabled: true
+      audio_dir: path/to/clotho/development
+      mixup_json: path/to/clotho/clotho_development_chatgpt_mixups.json
+      rejected_json:
+      mixup_normalize: false
 
 model:
   bart:
@@ -53,7 +49,7 @@ model:
 
   beats_encoder:
     target_sample_rate: 16000
-    pretrained_checkpoint_path: /scratch/rht9410/clotho/beats_checkpoint/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt1.pt
+    pretrained_checkpoint_path: path/to/checkpoints/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt1.pt
     aggregation_mode: concat_all
     include_input_embedding: false
     aggregation_hidden_size: 768
@@ -86,7 +82,7 @@ model:
       predictor_class: 527
 
   convnext_encoder:
-    pretrained_checkpoint_path: /scratch/rht9410/aac_checkpoints/convnext_tiny_471mAP.pth
+    pretrained_checkpoint_path: path/to/checkpoints/convnext_tiny_471mAP.pth
     target_sample_rate: 32000
     hidden_size: 768
     hop_size: 320
@@ -94,7 +90,7 @@ model:
 
   ast_encoder:
     target_sample_rate: 16000
-    pretrained_dir: /scratch/rht9410/clotho/ast_pretrained
+    pretrained_dir: path/to/checkpoints/ast_pretrained
     pretrained_checkpoint_path:
     strict_checkpoint_load: false
     imagenet_pretrain: true
@@ -131,21 +127,16 @@ model:
     dropout: 0.1
 
 training:
-  learning_rate: 1.0e-4
+  learning_rate: 2.0e-4
   weight_decay: 0.01
-  lr_scheduler:
-    name: inverse_lr_half_mix
-    warmup: 0.99
-    inv_gamma: 2000
-    power: 10
   max_epochs: 50
   grad_clip_val: 1.0
   precision: 32-true
   accelerator: auto
-  devices: 1
+  devices: auto
   strategy: auto
   log_every_n_steps: 10
-  progress_log_every_n_steps: 50
+  progress_log_every_n_steps: 100
   val_check_interval: 1.0
   limit_val_batches: 1.0
   accumulate_grad_batches: 1
@@ -154,14 +145,15 @@ training:
   generation_max_length: 32
   freeze_modules: [beats_encoder, convnext_encoder, ast_encoder]
   validation_preview_count: 4
-  init_from_checkpoint:
-  strict_init_checkpoint_load: true
   num_sanity_val_steps: 0
   enable_progress_bar: false
+  resume_from_checkpoint:
+  init_from_checkpoint:
+  strict_init_checkpoint_load: true
 
 logging:
-  entity: yd3245-new-york-university
   project: automatic-audio-captioning-ml-2026
-  run_name: hpc_rerun_finetune_clotho_from_all3_sequence_lr1e4_1gpu_bs32
-  save_dir: /scratch/rht9410/clotho/run_outputs/hpc_rerun_finetune_clotho_from_all3_sequence_lr1e4_1gpu_bs32
-  use_wandb: true
+  entity:
+  run_name: pretrain_beats_convnext_ast_sequence_audiocaps_mixup
+  save_dir: outputs/pretrain_beats_convnext_ast_sequence_audiocaps_mixup
+  use_wandb: false

@@ -52,3 +52,5 @@ python scripts/evaluation/score_outputs.py \
 
 `dcase2024` reports METEOR, CIDEr-D, SPICE, SPIDEr, SPIDEr-FL, FENSE, FER,
 SBERT similarity, and Vocabulary through `aac-metrics`.
+
+Set `OPENAI_API_KEY` in your environment or `.env` file before the LLM-backed run.
