@@ -1,0 +1,137 @@
+seed: 42
+
+data:
+  train_audio_dir: /scratch/rht9410/clotho/development
+  train_caption_csv: /scratch/rht9410/clotho/clotho_captions_development.csv
+  val_audio_dir: /scratch/rht9410/clotho/validation
+  val_caption_csv: /scratch/rht9410/clotho/clotho_captions_validation.csv
+  train_caption_mode: random
+  val_caption_mode: first
+  batch_size: 32
+  num_workers: 4
+  max_caption_tokens: 32
+  tokenizer_name: facebook/bart-base
+  validation_source: clotho
+  train_mix:
+    mode: concat
+  train_sources:
+    audiocaps:
+      enabled: true
+      root_dir: /scratch/rht9410/clotho/audiocaps/AUDIOCAPS_32000Hz
+      split: train
+    clotho_mixup:
+      enabled: true
+      audio_dir: /scratch/rht9410/clotho/development
+      mixup_json: /scratch/rht9410/clotho/clotho_development_chatgpt_mixups.json
+      rejected_json:
+      mixup_normalize: false
+
+model:
+  bart:
+    pretrained_model_name_or_path: facebook/bart-base
+    vocab_size: 50265
+    pad_token_id: 1
+    bos_token_id: 0
+    eos_token_id: 2
+    decoder_start_token_id: 2
+    d_model: 768
+    decoder_layers: 6
+    decoder_ffn_dim: 3072
+    decoder_attention_heads: 12
+    max_position_embeddings: 256
+    dropout: 0.1
+    attention_dropout: 0.1
+    activation_dropout: 0.1
+    label_smoothing: 0.1
+    audio_projection:
+      type: linear
+      layer_norm: true
+      bias: false
+      init: small_normal
+      init_std: 1.0e-3
+
+  beats_encoder:
+    target_sample_rate: 16000
+    pretrained_checkpoint_path: /scratch/rht9410/clotho/beats_checkpoint/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt1.pt
+    aggregation_mode: concat_all
+    include_input_embedding: false
+    aggregation_hidden_size: 768
+    aggregation_intermediate_dim: 3072
+    beats_config:
+      input_patch_size: 16
+      embed_dim: 512
+      conv_bias: false
+      encoder_layers: 12
+      encoder_embed_dim: 768
+      encoder_ffn_embed_dim: 3072
+      encoder_attention_heads: 12
+      activation_fn: gelu
+      layer_wise_gradient_decay_ratio: 1.0
+      layer_norm_first: false
+      deep_norm: false
+      dropout: 0.1
+      attention_dropout: 0.1
+      activation_dropout: 0.0
+      encoder_layerdrop: 0.0
+      dropout_input: 0.0
+      conv_pos: 128
+      conv_pos_groups: 16
+      relative_position_embedding: false
+      num_buckets: 320
+      max_distance: 1280
+      gru_rel_pos: false
+      finetuned_model: false
+      predictor_dropout: 0.1
+      predictor_class: 527
+
+  convnext_encoder:
+    pretrained_checkpoint_path: /scratch/rht9410/aac_checkpoints/convnext_tiny_471mAP.pth
+    target_sample_rate: 32000
+    hidden_size: 768
+    hop_size: 320
+    after_stem_dim: [252, 56]
+
+  fusion:
+    stage: early
+    mode: learned_resampling
+    resampling_num_heads: 8
+    debug_shapes: false
+    output_dim: 768
+    dropout: 0.1
+
+  conformer:
+    input_dim: 768
+    num_heads: 8
+    ffn_dim: 1536
+    num_layers: 2
+    depthwise_conv_kernel_size: 31
+    dropout: 0.1
+
+training:
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  max_epochs: 50
+  grad_clip_val: 1.0
+  precision: 32-true
+  accelerator: auto
+  devices: 2
+  strategy: ddp
+  log_every_n_steps: 10
+  progress_log_every_n_steps: 100
+  val_check_interval: 1.0
+  limit_val_batches: 1.0
+  accumulate_grad_batches: 1
+  compute_caption_metrics: true
+  caption_metric_batches: 4
+  generation_max_length: 32
+  freeze_modules: [beats_encoder, convnext_encoder]
+  validation_preview_count: 4
+  num_sanity_val_steps: 0
+  enable_progress_bar: false
+
+logging:
+  entity: yd3245-new-york-university
+  project: automatic-audio-captioning-ml-2026
+  run_name: hpc_rerun_beats_convnext_learned_resampling_audiocaps_mixup_lr2e4_2gpu_bs32
+  save_dir: /scratch/rht9410/clotho/run_outputs/hpc_rerun_beats_convnext_learned_resampling_audiocaps_mixup_lr2e4_2gpu_bs32
+  use_wandb: true
