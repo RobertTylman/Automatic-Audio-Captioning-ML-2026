@@ -185,11 +185,19 @@ class ClapSimilarityScorer:
             )
             sample_rate = target_sample_rate
 
-        audio_inputs = self.processor(
-            audios=waveform.detach().cpu().numpy(),
-            sampling_rate=sample_rate,
-            return_tensors="pt",
-        )
+        audio_array = waveform.detach().cpu().numpy()
+        try:
+            audio_inputs = self.processor(
+                audio=audio_array,
+                sampling_rate=sample_rate,
+                return_tensors="pt",
+            )
+        except TypeError:
+            audio_inputs = self.processor(
+                audios=audio_array,
+                sampling_rate=sample_rate,
+                return_tensors="pt",
+            )
         text_inputs = self.processor(
             text=captions,
             return_tensors="pt",

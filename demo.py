@@ -18,7 +18,11 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from aac_baseline.data.collators import AudioCaptioningCollator
-from aac_baseline.inference import normalize_caption
+from aac_baseline.inference import (
+    CaptionRerankingPipeline,
+    ClapSimilarityScorer,
+    normalize_caption,
+)
 from scripts.evaluation.generate_outputs import (
     choose_device,
     load_config,
@@ -54,6 +58,8 @@ class AudioCaptioningDemo:
         config = load_config(Path(args.config).expanduser().resolve())
         if args.skip_pretraining_bootstrap:
             config = disable_pretraining_bootstrap(config)
+        if args.openai_api_key:
+            os.environ["OPENAI_API_KEY"] = args.openai_api_key
 
         self.device = choose_device(args.device)
         self.model = load_model(
@@ -71,6 +77,49 @@ class AudioCaptioningDemo:
         self.max_length = args.max_length
         self.min_length = args.min_length
         self.no_repeat_ngram_size = args.no_repeat_ngram_size
+        self.mode = args.mode
+        self.reranking_pipeline = None
+        if self.mode == "rerank":
+            print("[demo] loading CLAP reranker", flush=True)
+            clap_scorer = ClapSimilarityScorer(
+                model_name=args.clap_model,
+                device=self.device,
+            )
+            self.reranking_pipeline = CaptionRerankingPipeline(
+                model=self.model,
+                tokenizer=self.collator.tokenizer,
+                clap_scorer=clap_scorer,
+                device=self.device,
+                generation_config={
+                    "max_length": args.max_length,
+                    "min_length": args.min_length,
+                    "do_sample": True,
+                    "temperature": args.temperature,
+                    "top_p": args.top_p,
+                    "num_return_sequences": args.num_return_sequences,
+                    "no_repeat_ngram_size": args.no_repeat_ngram_size,
+                },
+                decoder_weight=args.decoder_weight,
+                clap_weight=args.clap_weight,
+                top_audio_keep=args.top_audio_keep,
+                top_pairwise_keep=args.top_pairwise_keep,
+                openai_model=args.openai_model,
+                use_llm=args.use_llm,
+                show_sampled_captions=args.show_sampled_captions,
+            )
+            print(
+                f"[demo] rerank mode ready use_llm={args.use_llm} "
+                f"openai_model={args.openai_model}",
+                flush=True,
+            )
+        self.mode_label = self._build_mode_label(args)
+
+    def _build_mode_label(self, args: argparse.Namespace) -> str:
+        if args.mode == "greedy":
+            return "Mode: Greedy decoding"
+        if args.use_llm:
+            return f"Mode: CLAP reranking + GPT summarization ({args.openai_model})"
+        return "Mode: CLAP reranking only"
 
     def _load_audio(self, audio_input) -> tuple[torch.Tensor, int]:
         if isinstance(audio_input, dict):
@@ -121,6 +170,12 @@ class AudioCaptioningDemo:
                 ]
             )
 
+            if self.mode == "rerank":
+                if self.reranking_pipeline is None:
+                    raise RuntimeError("Reranking pipeline was not initialized.")
+                result = self.reranking_pipeline.process_batch(batch)[0]
+                return result.final_caption
+
             with torch.no_grad():
                 token_ids = self.model.generate(
                     waveforms=batch["waveforms"].to(self.device),
@@ -151,6 +206,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-length", type=int, default=32)
     parser.add_argument("--min-length", type=int, default=0)
     parser.add_argument("--no-repeat-ngram-size", type=int, default=3)
+    parser.add_argument("--mode", type=str, choices=["greedy", "rerank"], default="greedy")
+    parser.add_argument("--temperature", type=float, default=0.5)
+    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--num-return-sequences", type=int, default=64)
+    parser.add_argument("--clap-model", type=str, default="laion/clap-htsat-unfused")
+    parser.add_argument("--decoder-weight", type=float, default=0.3)
+    parser.add_argument("--clap-weight", type=float, default=0.7)
+    parser.add_argument("--top-audio-keep", type=int, default=32)
+    parser.add_argument("--top-pairwise-keep", type=int, default=12)
+    parser.add_argument("--openai-model", type=str, default="gpt-4.1-mini")
+    parser.add_argument("--openai-api-key", type=str, default=None)
+    parser.add_argument(
+        "--use-llm",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use GPT summarization after CLAP reranking in rerank mode.",
+    )
+    parser.add_argument("--show-sampled-captions", action="store_true")
     parser.add_argument(
         "--allow-partial-checkpoint",
         action="store_true",
@@ -190,6 +263,7 @@ def main() -> None:
         inputs=gr.Audio(type="filepath", label="Audio file"),
         outputs=gr.Textbox(label="Caption"),
         title="Automatic Audio Captioning",
+        description=demo_runner.mode_label,
     )
     interface.launch(
         server_name=args.server_name,

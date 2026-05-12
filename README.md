@@ -133,6 +133,23 @@ force the YAML bootstrap weights to load first, pass
 If you need a specific port, add `--server-port 7860`; otherwise Gradio will
 choose an open port automatically.
 
+To use nucleus sampling, CLAP reranking, and GPT summarization in the demo,
+launch with `--mode rerank`. You can pass the OpenAI key on the command line:
+
+```bash
+python -u demo.py \
+  --config configs/beats_convnext_ast_sequence_fusion.yaml \
+  --checkpoint "insert/checkpoint/filepath/here.ckpt" \
+  --device cpu \
+  --mode rerank \
+  --openai-api-key "insert-openai-api-key-here"
+```
+
+You can also omit `--openai-api-key` if `OPENAI_API_KEY` is already set in your
+shell or repo-local `.env` file. Rerank mode is slower than greedy mode because
+it samples many captions, scores them with CLAP, and optionally calls GPT.
+To use CLAP reranking without GPT summarization, add `--no-use-llm`.
+
 ### Greedy decoding
 
 ```bash
