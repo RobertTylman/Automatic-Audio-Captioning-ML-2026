@@ -1,5 +1,7 @@
 # Automatic Audio Captioning ML 2026
 
+A multi-encoder system that generates natural-language descriptions from raw audio. PyTorch Lightning pipeline combines 3 encoders: BEATs, ConvNeXt, AST, with configurable fusions, a Conformer post-encoder, and BART decoding. Re-ranking stage samples multiple candidate captions using Nucleus Sampling, ranks them using CLAP-based audio-text similarity, and refines the strongest outputs with GPT. Evaluated with FENSE and standard DCASE metrics. Achieves comparable performance to SOTA with 94% fewer parameters.
+
 This repo trains and evaluates audio captioning models built from BEATs, ConvNeXt, and AST encoders with three fusion options:
 
 ## Environment
